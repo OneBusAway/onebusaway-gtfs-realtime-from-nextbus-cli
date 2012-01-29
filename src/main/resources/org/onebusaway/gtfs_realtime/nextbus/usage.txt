@@ -1,0 +1,22 @@
+Description:
+  Command-line application converts data from the NextBus API into GTFS-realtime output files.
+  
+Usage:
+  [-args] --agencyId=nextbus_agency_id
+
+Args:
+  --agencyId=id              NextBus agency id for the agency to query
+  --tripUpdatesPath=path     path to write GTFS-realtime output
+  --tripUpdatesUrl=url       url to share GTFS-realtime output
+  
+  --daemonize                Indicates that the process should be daemonized
+  --pidFile=path             When daemonized, writes the process pid to the specified file
+  --jvmArgs                  When daemonized, args to specify to the daemonized JVM instance.
+  --errorFile=path|&1        When daemonized, stderr is written to the specified file or redirected to stdout (&1)
+  --outputFile=path|&2       When daemonized, stdout is written to the specified file or redirected to stderr (&2)
+  
+Full Documentation:
+
+  For full documentation on the onebusaway-gtfs-realtime-from-siri-cli, see:
+    
+  http://developer.onebusaway.org/modules/onebusaway-gtfs-realtime-from-nextbus-cli/${project.version}/

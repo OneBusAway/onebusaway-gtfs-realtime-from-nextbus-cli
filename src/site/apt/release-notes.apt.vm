@@ -1,0 +1,19 @@
+Release Notes
+
+* ${currentVersion}
+
+  * Added {{{./rpm.html}RPM Linux Service}}.
+  
+  * Add simple embedded web-server option for sharing GTFS-realtime feeds.
+  
+  * Support for a number of OneBusAway-specific experimental GTFS-realtime extensions.
+  
+  * Improved site documentation.
+
+  * Full Documentation: {{${site_base_url}/onebusaway-gtfs-realtime-from-siri-cli/${currentVersion}/}}
+  
+* 1.0.0
+
+  * Initial release
+
+  * Full Documentation: {{${site_base_url}/onebusaway-gtfs-realtime-from-siri-cli/1.0.0/}}

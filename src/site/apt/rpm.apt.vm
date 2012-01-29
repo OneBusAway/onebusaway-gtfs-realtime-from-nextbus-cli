@@ -1,0 +1,77 @@
+ ------
+onebusaway-gtfs-realtime-from-siri-cli 
+ ------
+ 
+RPM + Linux Service
+
+  We provide an RPM package of of the <<<onebusaway-gtfs-realtime-from-siri-cli>>> SIRI-to-GTFS-realtime converter
+application.  The package should make it easy to deploy the converter as a service on a Linux server.
+
+* Downloading the RPM
+
+  You can download the latest RPM here:
+
+#set( $url = 'http://nexus.onebusaway.org/service/local/artifact/maven/content?r=public&g=org.onebusaway&a=onebusaway-gtfs-realtime-from-siri-cli&c=rpm&p=zip&v=' + ${currentVersion} )
+  
+  {{{${url}}onebusaway-gtfs-realtime-from-siri-cli-${currentVersion}-rpm.zip}}
+  
+  <<Note:>> For complicated reasons, we offer a ZIP file download containing the RPM.  Extract the ZIP to get at the rpm inside.
+
+* Installing the RPM
+
+  Install the RPM like you would any other:
+  
++---+
+rpm -i onebusaway-gtfs-realtime-from-siri-cli-VERSION.noarch.rpm
++---+
+
+  Note that you typically need to be root to install an RPM.
+    
+* Configuring the Service
+  
+  The primary configuration file for the service is:
+  
++---+
+/etc/onebusaway-gtfs-realtime-from-siri-cli/onebusaway-gtfs-realtime-from-siri-cli.conf
++---+
+
+  The file will contain a couple of options by default.  The one you are most concerned with is <<<CLI_ARGS>>>:
+
++---+  
+# Custom onebusaway-gtfs-realtime-from-siri-cli arguments go here
+CLI_ARGS="..."
++---+
+
+  <<<CLI_ARGS>>> accepts the same command-line arguments as the stand-alone <<<onebusaway-gtfs-realtime-from-siri-cli>>>
+application.  For full details of all command-line options, see the full
+{{{./index.html}onebusaway-gtfs-realtime-from-siri-cli documentation}}.  As a quick example, the following config sets the
+requestor ref to <<<me>>> and subscribes to vehicle monitoring messages from <<<http://host:8080/subscribe.xml>>>:
+
++---+  
+# Custom onebusaway-gtfs-realtime-from-siri-cli arguments go here
+CLI_ARGS="--tripUpdatesUrl=http://localhost:8080/trip-updates Url=http://host:8080/subscribe.xml,ModuleType=VEHICLE_MONITORING"
++---+
+
+* Starting and Stopping the Service
+
+  You can use standard init.d scripts to start and stop the <<<onebusaway-gtfs-realtime-from-siri-cli>>> daemon:
+  
++---+
+/etc/init.d/onebusaway-gtfs-realtime-from-siri-cli {start|stop|restart|status}
++---+
+
+  You can also use the built-in <<<service>>> command to start and stop the service as well:
+
++---+
+service onebusaway-gtfs-realtime-from-siri-cli {start|stop|restart|status}
++---+
+
+  You can also control how the service is started on boot using the <<<chkconfig>>> command. 
+ 
+* Logging
+
+  By default, the <<<onebusaway-gtfs-realtime-from-siri-cli>>> daemon logs to the following location:
+  
++---+
+/var/log/onebusaway-gtfs-realtime-from-siri-cli/onebusaway-gtfs-realtime-from-siri-cli.log
++---+S

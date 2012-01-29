@@ -1,0 +1,238 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <artifactId>onebusaway</artifactId>
+    <groupId>org.onebusaway</groupId>
+    <version>1.1.2</version>
+  </parent>
+  <artifactId>onebusaway-gtfs-realtime-from-nextbus-cli</artifactId>
+  <version>1.0.1-SNAPSHOT</version>
+  <name>onebusaway-gtfs-realtime-from-nextbus-cli</name>
+  <description>Produce GTFS-realtime data from a NextBus API data-stream</description>
+
+  <properties>
+    <gtfs_realtime_api_version>1.0.1-SNAPSHOT</gtfs_realtime_api_version>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>public.onebusaway.org</id>
+      <url>http://nexus.onebusaway.org/content/groups/public/</url>
+    </repository>
+  </repositories>
+
+  <scm>
+    <connection>scm:svn:http://onebusaway.googlecode.com/svn/gtfs-realtime/onebusaway-gtfs-realtime-from-nextbus-cli/trunk</connection>
+    <developerConnection>scm:svn:https://onebusaway.googlecode.com/svn/gtfs-realtime/onebusaway-gtfs-realtime-from-nextbus-cli/trunk</developerConnection>
+    <url>http://code.google.com/p/onebusaway/source/browse/#svn/gtfs-realtime/onebusaway-gtfs-realtime-from-nextbus-cli/trunk</url>
+  </scm>
+
+  <distributionManagement>
+    <!-- Even though we specify this in the parent pom, we need to specify it here to have full control over the url -->
+    <site>
+      <id>${site_id}</id>
+      <url>${site_url}</url>
+    </site>
+  </distributionManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>4.0.3</version>
+    </dependency>
+    <dependency>
+      <groupId>commons-digester</groupId>
+      <artifactId>commons-digester</artifactId>
+      <version>1.8.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.onebusaway</groupId>
+      <artifactId>onebusaway-gtfs-realtime-exporter</artifactId>
+      <version>1.0.0-SNAPSHOT</version>
+    </dependency>
+    <!-- For daemonization support -->
+    <dependency>
+      <groupId>org.onebusaway</groupId>
+      <artifactId>onebusaway-cli</artifactId>
+      <version>1.0.1-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.onebusaway</groupId>
+      <artifactId>onebusaway-collections</artifactId>
+      <version>1.1.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.mortbay.jetty</groupId>
+      <artifactId>jetty-embedded</artifactId>
+      <version>6.1.26</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-log4j12</artifactId>
+      <version>1.5.6</version>
+    </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.8.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>1.8.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>onebusaway-gtfs-realtime-from-nextbus-cli</finalName>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <shadedClassifierName>withAllDependencies</shadedClassifierName>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>oorg.onebusaway.gtfs_realtime.nextbus.NextBusToGtfsRealtimeMain</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.mycila.maven-license-plugin</groupId>
+        <artifactId>maven-license-plugin</artifactId>
+        <version>1.10.b1</version>
+        <configuration>
+          <header>LICENSE.txt</header>
+          <excludes>
+            <exclude>src/main/rpm/**</exclude>
+            <exclude>src/site/**</exclude>            
+            <exclude>LICENSE.txt</exclude>
+            <exclude>**/usage.txt</exclude>
+            <exclude>**/log4j.properties</exclude>
+          </excludes>
+          <strictCheck>true</strictCheck>
+          <headerSections>
+            <headerSection>
+              <key>COPYRIGHT_SECTION</key>
+              <defaultValue>Copyright (C) 2012 Google, Inc.</defaultValue>
+              <ensureMatch>Copyright \(C\) \d{4} .+</ensureMatch>
+            </headerSection>
+          </headerSections>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>rpm-maven-plugin</artifactId>
+        <version>2.1-alpha-1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>rpm</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <name>onebusaway-gtfs-realtime-from-nextbus-cli</name>
+          <copyright>Apache License V2</copyright>
+          <group>Application/Transit</group>
+          <packager>OneBusAway</packager>
+          <prefix>/usr</prefix>
+          <release>0</release>
+          <mappings>
+                <!-- The JAR file -->
+            <mapping>
+              <directory>/usr/share/onebusaway-gtfs-realtime-from-nextbus-cli</directory>
+              <filemode>644</filemode>
+              <username>root</username>
+              <groupname>root</groupname>
+              <artifact />
+            </mapping>
+                <!-- Configuration files -->
+            <mapping>
+              <directory>/etc/onebusaway-gtfs-realtime-from-nextbus-cli</directory>
+              <configuration>true</configuration>
+              <filemode>640</filemode>
+              <username>root</username>
+              <groupname>root</groupname>
+              <sources>
+                <source>
+                  <location>src/main/rpm/etc/onebusaway-gtfs-realtime-from-nextbus-cli</location>
+                </source>
+              </sources>
+            </mapping>
+                <!-- Init.d Scripts -->
+            <mapping>
+              <directory>/etc/init.d</directory>
+              <directoryIncluded>false</directoryIncluded>
+              <filemode>755</filemode>
+              <username>root</username>
+              <groupname>root</groupname>
+              <sources>
+                <source>
+                  <location>src/main/rpm/etc/init.d</location>
+                </source>
+              </sources>
+            </mapping>
+                <!-- Log Directory -->
+            <mapping>
+              <directory>/var/log/onebusaway-gtfs-realtime-from-nextbus-cli</directory>
+              <filemode>750</filemode>
+              <username>root</username>
+              <groupname>root</groupname>
+            </mapping>
+          </mappings>
+          <postinstallScriptlet>
+            <script>chkconfig --add onebusaway-gtfs-realtime-from-nextbus-cli</script>
+          </postinstallScriptlet>
+          <preremoveScriptlet>
+            <script>chkconfig --del onebusaway-gtfs-realtime-from-nextbus-cli</script>
+          </preremoveScriptlet>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>assembly.xml</descriptor>
+              </descriptors>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

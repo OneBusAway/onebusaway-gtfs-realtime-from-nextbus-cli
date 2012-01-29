@@ -1,0 +1,184 @@
+#!/bin/bash
+# onebusaway-gtfs-realtime-from-nextbus-cli	This shell script starts and stops the
+#				OneBusAway GTFS-realtime-from-SIRI application
+#
+# chkconfig: 345 75 25
+# description: onebusaway-gtfs-realtime-from-nextbus-cli - An application for converting SIRI \
+# realtime data to GTFS-realtime data.
+# pidfile: /var/run/onebusaway-gtfs-realtime-from-nextbus-cli.pid
+# config: /etc/onebusaway-gtfs-realtime-from-nextbus-cli/onebusaway-gtfs-realtime-from-nextbus-cli.conf
+### BEGIN INIT INFO
+# Provides: onebusaway-gtfs-realtime-from-nextbus-cli
+# Required-Start: $network $syslog
+# Required-Stop: $network $syslog
+# Default-Start:     3 4 5
+# Default-Stop:      0 1 2 6
+# Description: OneBusAway GTFS-realtime-from-SIRI converter application
+# Short-Description: start and stop onebusaway-gtfs-realtime-from-nextbus-cli
+### END INIT INFO
+#
+#
+
+if [ -r /lib/lsb/init-functions ]; then
+    . /lib/lsb/init-functions
+else
+    exit 1
+fi
+
+NAME="$(basename $0)"
+unset ISBOOT
+if [ "${NAME:0:1}" = "S" -o "${NAME:0:1}" = "K" ]; then
+    NAME="${NAME:3}"
+    ISBOOT="1"
+fi
+
+# For SELinux we need to use 'runuser' not 'su'
+if [ -x "/sbin/runuser" ]; then
+    SU="/sbin/runuser"
+else
+    SU="su"
+fi
+
+# Get the config (use this for environment specific settings)
+OBA_CONVERTER_CFG="/etc/onebusaway-gtfs-realtime-from-nextbus-cli/onebusaway-gtfs-realtime-from-nextbus-cli.conf"
+if [ -r "$OBA_CONVERTER_CFG" ]; then
+    . ${OBA_CONVERTER_CFG}
+fi
+
+# Get instance specific config file
+if [ -r "/etc/sysconfig/${NAME}" ]; then
+    . /etc/sysconfig/${NAME}
+fi
+
+# Path to the jar
+JAR_FILE="${JAR_FILE:-/usr/share/onebusaway-gtfs-realtime-from-nextbus-cli/onebusaway-gtfs-realtime-from-nextbus-cli.jar}"
+
+# Define the username
+OBA_USER="${OBA_USER:-root}"
+OBA_GROUP="${OBA_GROUP:-root}"
+
+# Define the log file
+LOG_FILE="${LOG_FILE:-/var/log/onebusaway-gtfs-realtime-from-nextbus-cli/onebusaway-gtfs-realtime-from-nextbus-cli.log}"
+
+# Define the java executable
+JAVA="${JAVA:-java}"
+
+# Define the PID file
+PID_FILE="/var/run/${NAME}.pid"
+LOCK_FILE="/var/lock/subsys/${NAME}"
+
+JVM_ARGS="${JVM_ARGS:-}"
+CLI_ARGS="${CLI_ARGS:-}"
+
+# Define th command to launch the application
+OBA_CONVERTER_CMD="${JAVA} ${JVM_ARGS} -jar ${JAR_FILE} -daemonize -pidFile ${PID_FILE} -outputFile \"&2\" -errorFile ${LOG_FILE} ${CLI_ARGS}" 
+
+RETVAL="0"
+
+function checkpid() {
+    local i
+    for i in $* ; do
+        if [ -d "/proc/${i}" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# See how we were called.
+function start() {
+    echo -n "Starting ${NAME}: "
+    if [ -f "${LOCK_FILE}" ] ; then
+        if [ -f "${PID_FILE}" ]; then
+            read kpid < $PID_FILE
+                if checkpid $kpid 2>&1; then
+                    echo "$NAME process already running"
+                        return -1
+                    else
+                        echo "lock file found but no process running for"
+                        echo "pid $kpid, continuing"
+                fi
+        fi
+    fi
+
+    # Make sure the PID file has proper ownership
+    touch $PID_FILE
+    chown ${OBA_USER} $PID_FILE
+
+    # Make sure the log file has proper ownership
+    touch $LOG_FILE
+    chown ${OBA_USER}:${OBA_GROUP} $LOG_FILE
+
+    $SU - $OBA_USER -c "${OBA_CONVERTER_CMD}" >> $LOG_FILE 2>&1
+    RETVAL="$?"
+    if [ "$RETVAL" -eq 0 ]; then 
+        log_success_msg
+        touch $LOCK_FILE
+    else
+        log_failure_msg
+    fi
+    #echo
+    return $RETVAL
+}
+
+function status() {
+    RETVAL="1"
+    if [ -f "${PID_FILE}" ]; then
+        read kpid < $PID_FILE
+        if checkpid $kpid 2>&1; then
+            echo "$0 is already running (${kpid})"
+            RETVAL="0"
+        else
+            echo "lock file found but no process running for pid $kpid"
+        fi
+    else
+        pid="$(pgrep -u ${OBA_USER} java)"
+        if [ -n "$pid" ]; then
+            echo "$0 running (${pid}) but no PID file exists"
+            RETVAL="0"
+        else
+            echo "$0 is stopped"
+        fi
+    fi
+    return $RETVAL
+}
+
+function stop() {
+    echo -n "Stopping $NAME: "
+    if [ -f "${LOCK_FILE}" ]; then
+        if [ -f "${PID_FILE}" ]; then
+            read kpid < $PID_FILE
+            kill $kpid
+            log_success_msg
+        else
+            log_failure_msg
+        fi
+        rm -f $LOCK_FILE $PID_FILE
+    else
+        log_failure_msg
+    fi
+    #echo
+}
+
+# See how we were called.
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        stop
+        sleep 2    
+        start
+        ;;
+    status)
+        status
+        ;;
+    *)
+        echo "Usage: $NAME {start|stop|restart|status|version}"
+        exit 1
+esac
+
+exit $RETVAL

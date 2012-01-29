@@ -1,0 +1,84 @@
+onebusaway-gtfs-realtime-from-nextbus-cli
+
+  The <<<onebusaway-gtfs-realtime-from-nextbus-cli>>> application is designed to convert data from the
+NextBus API into the {{{http://developers.google.com/transit/gtfs-realtime/}GTFS-realtime}} format.  Specifically, the
+application periodically polls the NextBus API for a particular agency and constructs a GTFS-realtime feed from the
+results.
+
+* Getting The Application
+
+#set( $url = 'http://nexus.onebusaway.org/service/local/artifact/maven/content?r=public&g=org.onebusaway&a=onebusaway-gtfs-realtime-from-nextbus-cli&v=' + ${currentVersion} )
+#set( $rpm = 'http://nexus.onebusaway.org/service/local/artifact/maven/content?r=public&g=org.onebusaway&a=onebusaway-gtfs-realtime-from-nextbus-cli&c=rpm&p=zip&v=' + ${currentVersion} )
+
+  * Download the jar: {{{${url}}onebusaway-gtfs-realtime-from-siri-cli.jar}}
+
+  * Download the RPM: {{{${rpm}}onebusaway-gtfs-realtime-from-siri-cli RPM}}
+  
+  []
+  
+* Usage
+
+  To run the application:
+  
++---+
+java -jar onebusaway-gtfs-realtime-from-nextbus-cli.jar [-args] --agencyId=nextbus_agency_id
++---+
+
+* Args
+
+  * <<<--agencyId=id>>> - NextBus agency id for the agency to query
+
+  * <<<--tripUpdatesPath=path>>> - path to write GTFS-realtime output
+
+  * <<<--tripUpdatesUrl=url>>> - url to share GTFS-realtime output  
+
+  * <<<--daemonize>>> - Indicates that the process should be daemonized
+
+  * <<<--pidFile=path>>> - When daemonized, writes the process pid to the specified file
+
+  * <<<--jvmArgs>>> - When daemonized, args to specify to the daemonized JVM instance.
+
+  * <<<--errorFile=path|&1>>> - When daemonized, stderr is written to the specified file or redirected to stdout (&1)
+
+  * <<<--outputFile=path|&2>>> - When daemonized, stdout is written to the specified file or redirected to stderr (&2)
+  
+* Exporting GTFS-realtime
+
+  We currently support two methods for exporting GTFS-realtime data:
+  
+  * write the feed to a file
+  
+  * share the feed through an embedded web-server
+  
+  []
+  
+  For example, to write trip updates to a Protocol Buffer encoded output file, you might specify the following command
+  line option:
+  
++---+
+--tripUpdatesPath=/var/www/trip-updates
++---+
+
+  This might be a good option if you have an existing web server.  By writing the GTFS-realtime feed to a file, you can
+  let your web server do the work of sharing the file with external clients.
+  
+  Of course, if you don't have a web server, you can let the application host the feed directly.  Consider the following
+  example:
+  
++---+
+--tripUpdatesUrl=http://localhost:8080/trip-updates
++---+  
+
+  This will share the Protocol Buffer encoded data feed at the url {{{http://localhost:8080/trip-updates}}}.  You can
+  even see a text-encoded debug version of the feed by appending "?debug" to the url.
+
+* Complete Example
+
+  Here's a complete example that shares trip updates over HTTP and pulls information from the Seattle streetcar feed.
+  
++---+
+java -jar onebusaway-gtfs-realtime-from-nextbus-cli.jar \
+ --agencyId=seattle \
+ --tripUpdatesUrl=http://localhost:8080/trip-updates
++---+
+
