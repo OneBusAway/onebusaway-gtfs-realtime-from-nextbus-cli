@@ -17,7 +17,7 @@ package org.onebusaway.gtfs_realtime.nextbus.model.api;
 
 import java.io.Serializable;
 
-public class Stop implements Serializable {
+public class NBStop implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
@@ -69,5 +69,27 @@ public class Stop implements Serializable {
 
   public void setStopId(String stopId) {
     this.stopId = stopId;
+  }
+
+  @Override
+  public String toString() {
+    return tag;
+  }
+
+  @Override
+  public int hashCode() {
+    return tag.hashCode();
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj)
+      return true;
+    if (obj == null)
+      return false;
+    if (getClass() != obj.getClass())
+      return false;
+    NBStop other = (NBStop) obj;
+    return tag.equals(other.tag);
   }
 }

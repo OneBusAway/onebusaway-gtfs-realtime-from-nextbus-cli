@@ -19,7 +19,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Direction implements Serializable {
+public class NBDirection implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
@@ -31,9 +31,9 @@ public class Direction implements Serializable {
 
   private boolean useForUI;
 
-  private List<Stop> stops = new ArrayList<Stop>();
+  private List<NBStop> stops = new ArrayList<NBStop>();
 
-  private List<Prediction> predictions = new ArrayList<Prediction>();
+  private List<NBPrediction> predictions = new ArrayList<NBPrediction>();
 
   public String getTag() {
     return tag;
@@ -67,19 +67,19 @@ public class Direction implements Serializable {
     this.useForUI = useForUI;
   }
 
-  public void addStop(Stop stop) {
+  public void addStop(NBStop stop) {
     stops.add(stop);
   }
 
-  public List<Stop> getStops() {
+  public List<NBStop> getStops() {
     return stops;
   }
 
-  public void addPrediction(Prediction prediction) {
+  public void addPrediction(NBPrediction prediction) {
     predictions.add(prediction);
   }
 
-  public List<Prediction> getPredictions() {
+  public List<NBPrediction> getPredictions() {
     return predictions;
   }
 }

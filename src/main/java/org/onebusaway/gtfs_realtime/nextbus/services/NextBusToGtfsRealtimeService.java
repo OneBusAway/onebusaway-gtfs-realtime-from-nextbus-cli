@@ -16,10 +16,11 @@
 package org.onebusaway.gtfs_realtime.nextbus.services;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -34,12 +35,13 @@ import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import org.apache.commons.digester.Digester;
 import org.onebusaway.collections.FactoryMap;
+import org.onebusaway.collections.MappingLibrary;
+import org.onebusaway.gtfs_realtime.nextbus.model.FlatPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Direction;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Prediction;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Predictions;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPrediction;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
 import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeProvider;
 import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeSupport;
 import org.slf4j.Logger;
@@ -55,17 +57,17 @@ import com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeUpdate;
 import com.google.transit.realtime.GtfsRealtime.VehicleDescriptor;
 
 @Singleton
-public class GtfsRealtimeService implements GtfsRealtimeProvider {
+public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
 
-  private static final Logger _log = LoggerFactory.getLogger(GtfsRealtimeService.class);
+  private static final Logger _log = LoggerFactory.getLogger(NextBusToGtfsRealtimeService.class);
 
   private static final PredictionComparator _predictionComparator = new PredictionComparator();
 
-  private DownloaderService _downloader;
-
   private RouteStopCoverageService _routeStopCoverageService;
 
-  private String _agencyId;
+  private NextBusApiService _nextBusApiService;
+
+  private NextBusToGtfsService _nextBusToGtfsService;
 
   private ConcurrentMap<String, TripUpdateWithTimestamp> _tripUpdatesByTripId = new ConcurrentHashMap<String, TripUpdateWithTimestamp>();
 
@@ -86,18 +88,19 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
   private int _minimumTimeBetweenRequests = 30;
 
   @Inject
-  public void setDownloader(DownloaderService downloader) {
-    _downloader = downloader;
-  }
-
-  @Inject
   public void setRouteStopCoverageService(
       RouteStopCoverageService routeStopCoverageService) {
     _routeStopCoverageService = routeStopCoverageService;
   }
 
-  public void setAgencyId(String agencyId) {
-    _agencyId = agencyId;
+  @Inject
+  public void setNextBusApiService(NextBusApiService nextBusApiService) {
+    _nextBusApiService = nextBusApiService;
+  }
+
+  @Inject
+  public void setNextBusToGtfsService(NextBusToGtfsService nextBusToGtfsService) {
+    _nextBusToGtfsService = nextBusToGtfsService;
   }
 
   /**
@@ -151,32 +154,104 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
     }
   }
 
-  private void processRouteStopCoverage(Digester digester,
-      RouteStopCoverage routeStopCoverage) throws IOException, SAXException {
+  private void processRouteStopCoverage(RouteStopCoverage routeStopCoverage)
+      throws IOException, SAXException {
 
     _log.info("route=" + routeStopCoverage.getRouteTag());
 
-    Map<String, List<Prediction>> predictionsByTripId = new FactoryMap<String, List<Prediction>>(
-        new ArrayList<Prediction>());
+    List<NBPredictions> allPredictions = _nextBusApiService.downloadPredictions(routeStopCoverage);
+    List<FlatPrediction> flatPredictions = flattenPredictions(allPredictions);
 
-    List<Predictions> allPredictions = downloadPredictions(digester,
-        routeStopCoverage);
+    Map<String, List<FlatPrediction>> predictionsByVehicleId = new HashMap<String, List<FlatPrediction>>();
+    Map<String, List<FlatPrediction>> predictionsByBlockId = new HashMap<String, List<FlatPrediction>>();
+    Map<String, List<FlatPrediction>> predictionsByTripId = new HashMap<String, List<FlatPrediction>>();
+    Map<String, List<FlatPrediction>> predictionsByRouteId = new HashMap<String, List<FlatPrediction>>();
+    groupPredictions(flatPredictions, predictionsByVehicleId,
+        predictionsByBlockId, predictionsByTripId, predictionsByRouteId);
 
-    for (Predictions predictions : allPredictions) {
-      for (Direction direction : predictions.getDirections()) {
-        for (Prediction prediction : direction.getPredictions()) {
-          prediction.setStopTag(predictions.getStopTag());
-          String tripId = prediction.getTripTag();
-          predictionsByTripId.get(tripId).add(prediction);
+    /*
+    processPredictionGroup(predictionsByVehicleId);
+    processPredictionGroup(predictionsByTripId);
+    processPredictionGroup(predictionsByRouteId);
+    */
+  }
+
+  private List<FlatPrediction> flattenPredictions(
+      List<NBPredictions> allPredictions) {
+
+    List<FlatPrediction> flattened = new ArrayList<FlatPrediction>();
+    for (NBPredictions predictions : allPredictions) {
+      for (NBDirection direction : predictions.getDirections()) {
+        for (NBPrediction prediction : direction.getPredictions()) {
+          FlatPrediction flat = new FlatPrediction();
+          flat.setBlock(prediction.getBlock());
+          flat.setDirTag(prediction.getDirTag());
+          flat.setEpochTime(prediction.getEpochTime());
+          flat.setRouteTag(predictions.getRouteTag());
+          flat.setStopTag(predictions.getStopTag());
+          flat.setTripTag(prediction.getTripTag());
+          flat.setVehicle(prediction.getVehicle());
+
+          if (flat.getRouteTag() != null) {
+            flat.setRouteTag(_nextBusToGtfsService.getMappingForRouteTag(flat.getRouteTag()));
+            if (flat.getDirTag() != null && flat.getStopTag() != null) {
+              flat.setStopTag(_nextBusToGtfsService.getMappingForRouteDirectionStopTag(
+                  flat.getRouteTag(), flat.getDirTag(), flat.getStopTag()));
+            }
+          }
+
+          flattened.add(flat);
         }
       }
     }
+    return flattened;
+  }
 
-    for (Map.Entry<String, List<Prediction>> entry : predictionsByTripId.entrySet()) {
-      String tripId = entry.getKey();
-      List<Prediction> predictions = entry.getValue();
+  private void groupPredictions(List<FlatPrediction> predictions,
+      Map<String, List<FlatPrediction>> predictionsByVehicleId,
+      Map<String, List<FlatPrediction>> predictionsByBlockId,
+      Map<String, List<FlatPrediction>> predictionsByTripId,
+      Map<String, List<FlatPrediction>> predictionsByRouteId) {
+
+    for (FlatPrediction flat : predictions) {
+      if (flat.getVehicle() != null) {
+        addToMap(predictionsByVehicleId, flat.getVehicle(), flat);
+      } else if (flat.getBlock() != null) {
+        addToMap(predictionsByBlockId, flat.getBlock(), flat);
+      } else if (flat.getTripTag() != null) {
+        addToMap(predictionsByTripId, flat.getTripTag(), flat);
+      } else if (flat.getRouteTag() != null) {
+        addToMap(predictionsByRouteId, flat.getRouteTag(), flat);
+      }
+    }
+    
+    sortPredictions(predictionsByVehicleId.values());
+    sortPredictions(predictionsByTripId.values());
+    sortPredictions(predictionsByRouteId.values());
+  }
+
+  private void sortPredictions(Collection<List<FlatPrediction>> allPredictions) {
+    for (List<FlatPrediction> predictions : allPredictions) {
       Collections.sort(predictions, _predictionComparator);
-      Prediction first = predictions.get(0);
+    }
+  }
+
+  private void processVehicleIdPredictionGroup(
+      Map<String, List<FlatPrediction>> predictionsById) {
+    for (Map.Entry<String, List<FlatPrediction>> entry : predictionsById.entrySet()) {
+      List<FlatPrediction> predictions = entry.getValue();
+     
+    }
+  }
+
+  /*
+  private void processPredictionGroup(
+      Map<String, List<FlatPrediction>> predictionsById) {
+    for (Map.Entry<String, List<FlatPrediction>> entry : predictionsById.entrySet()) {
+      String id = entry.getKey();
+      List<FlatPrediction> predictions = entry.getValue();
+      Collections.sort(predictions, _predictionComparator);
+      FlatPrediction first = predictions.get(0);
 
       TripUpdate.Builder tripUpdate = TripUpdate.newBuilder();
       TripDescriptor.Builder tripDescriptor = TripDescriptor.newBuilder();
@@ -186,7 +261,7 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
       vehicle.setId(first.getVehicle());
       tripUpdate.setVehicle(vehicle);
 
-      for (Prediction prediction : predictions) {
+      for (NBPrediction prediction : predictions) {
         StopTimeUpdate.Builder stopTimeUpdate = StopTimeUpdate.newBuilder();
         stopTimeUpdate.setStopId(prediction.getStopTag());
         StopTimeEvent.Builder stopTimeEvent = StopTimeEvent.newBuilder();
@@ -199,38 +274,16 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
       _tripUpdatesByTripId.put(tripId, withTimestamp);
     }
   }
+  */
 
-  private Digester getDigester() {
-    Digester digester = new Digester();
-    digester.addObjectCreate("body", ArrayList.class);
-
-    digester.addObjectCreate("body/predictions", Predictions.class);
-    digester.addSetProperties("body/predictions");
-    digester.addSetNext("body/predictions", "add");
-
-    digester.addObjectCreate("body/predictions/direction", Direction.class);
-    digester.addSetProperties("body/predictions/direction");
-    digester.addSetNext("body/predictions/direction", "addDirection");
-
-    digester.addObjectCreate("body/predictions/direction/prediction",
-        Prediction.class);
-    digester.addSetProperties("body/predictions/direction/prediction");
-    digester.addSetNext("body/predictions/direction/prediction",
-        "addPrediction");
-
-    return digester;
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<Predictions> downloadPredictions(Digester digester,
-      RouteStopCoverage coverage) throws IOException, SAXException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictionsForMultiStops&a="
-        + _agencyId;
-    for (String stopTag : coverage.getStopTags()) {
-      url += "&stops=" + coverage.getRouteTag() + "%7c" + stopTag;
+  private void addToMap(Map<String, List<FlatPrediction>> predictionsById,
+      String id, FlatPrediction prediction) {
+    List<FlatPrediction> predictions = predictionsById.get(id);
+    if (predictions == null) {
+      predictions = new ArrayList<FlatPrediction>();
+      predictionsById.put(id, predictions);
     }
-    InputStream in = _downloader.openUrl(url);
-    return (List<Predictions>) digester.parse(in);
+    predictions.add(prediction);
   }
 
   private void writeGtfsRealtimeOutput() {
@@ -259,7 +312,6 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
 
     @Override
     public void run() {
-      Digester digester = getDigester();
 
       while (true) {
         List<RouteStopCoverage> coverage = _routeStopCoverageService.getRouteStopCoverage();
@@ -269,7 +321,7 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
             return;
           }
           try {
-            processRouteStopCoverage(digester, routeStopCoverage);
+            processRouteStopCoverage(routeStopCoverage);
             writeGtfsRealtimeOutput();
           } catch (Exception ex) {
 
@@ -284,6 +336,7 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
         long remainingTime = _minimumTimeBetweenRequests * 1000 - (t1 - t0);
         if (remainingTime > 0) {
           try {
+            _log.info("sleeping for " + remainingTime);
             Thread.sleep(remainingTime);
           } catch (InterruptedException e) {
             return;
@@ -311,13 +364,13 @@ public class GtfsRealtimeService implements GtfsRealtimeProvider {
     }
   }
 
-  private static class PredictionComparator implements Comparator<Prediction> {
+  private static class PredictionComparator implements
+      Comparator<FlatPrediction> {
     @Override
-    public int compare(Prediction o1, Prediction o2) {
+    public int compare(FlatPrediction o1, FlatPrediction o2) {
       long t1 = o1.getEpochTime();
       long t2 = o2.getEpochTime();
       return t1 == t2 ? 0 : (t1 < t2 ? -1 : 1);
     }
   }
-
 }

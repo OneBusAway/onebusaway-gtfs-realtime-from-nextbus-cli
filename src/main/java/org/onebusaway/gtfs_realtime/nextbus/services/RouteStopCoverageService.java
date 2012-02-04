@@ -15,15 +15,7 @@
  */
 package org.onebusaway.gtfs_realtime.nextbus.services;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -39,12 +31,11 @@ import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import org.apache.commons.digester.Digester;
 import org.onebusaway.collections.Counter;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Direction;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Route;
-import org.onebusaway.gtfs_realtime.nextbus.model.api.Stop;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -67,13 +58,11 @@ public class RouteStopCoverageService {
 
   private static final Logger _log = LoggerFactory.getLogger(RouteStopCoverageService.class);
 
-  private DownloaderService _downloader;
+  private NextBusApiService _nextBusApiService;
+
+  private NextBusToGtfsService _matchingService;
 
   private ScheduledExecutorService _executor;
-
-  private String _agencyId;
-
-  private File _routeConfigurationCachePath;
 
   private volatile List<RouteStopCoverage> _routeStopCoverage = Collections.emptyList();
 
@@ -82,8 +71,13 @@ public class RouteStopCoverageService {
   private ScheduledFuture<?> _refreshTaskInstance;
 
   @Inject
-  public void setDownloader(DownloaderService downloader) {
-    _downloader = downloader;
+  public void setNextBusApiService(NextBusApiService nextBusApiService) {
+    _nextBusApiService = nextBusApiService;
+  }
+
+  @Inject
+  public void setMatchingService(NextBusToGtfsService matchingService) {
+    _matchingService = matchingService;
   }
 
   @Inject
@@ -91,16 +85,20 @@ public class RouteStopCoverageService {
     _executor = executor;
   }
 
-  public void setAgencyId(String agencyId) {
-    _agencyId = agencyId;
-  }
-
-  public void setRouteConfigurationCachePath(File routeConfigurationCachePath) {
-    _routeConfigurationCachePath = routeConfigurationCachePath;
-  }
-
-  public List<RouteStopCoverage> getRouteStopCoverage() {
+  public synchronized List<RouteStopCoverage> getRouteStopCoverage() {
+    while (_routeStopCoverage.isEmpty()) {
+      try {
+        wait(1000);
+      } catch (InterruptedException e) {
+        return _routeStopCoverage;
+      }
+    }
     return _routeStopCoverage;
+  }
+
+  public String mapStopTagForRoute(String stopTag, String stopTag2) {
+
+    return null;
   }
 
   @PostConstruct
@@ -136,90 +134,36 @@ public class RouteStopCoverageService {
   private synchronized void refreshRouteStopCoverage(boolean useCacheIfAvailable)
       throws IOException, SAXException, ClassNotFoundException {
     _log.info("Rebuilding route-stop coverage model");
-    List<Route> routeConfigurations = readRouteConfigurations(useCacheIfAvailable);
+    List<NBRoute> routeConfigurations = readRouteConfigurations(useCacheIfAvailable);
     _routeStopCoverage = getRouteStopCoverageForRouteConfigurations(routeConfigurations);
+    _matchingService.matchToGtfs(routeConfigurations);
+    notifyAll();
   }
 
-  @SuppressWarnings("unchecked")
-  private List<Route> readRouteConfigurations(boolean useCacheIfAvailable)
+  private List<NBRoute> readRouteConfigurations(boolean useCacheIfAvailable)
       throws IOException, SAXException, ClassNotFoundException {
-    if (useCacheIfAvailable && _routeConfigurationCachePath != null
-        && _routeConfigurationCachePath.exists()) {
-      ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
-          new FileInputStream(_routeConfigurationCachePath)));
-      Object object = ois.readObject();
-      ois.close();
-      return (List<Route>) object;
-    }
-    List<Route> routeConfigurations = downloadRouteConfigurations();
-    if (_routeConfigurationCachePath != null) {
-      ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(
-          new FileOutputStream(_routeConfigurationCachePath)));
-      oos.writeObject(routeConfigurations);
-      oos.close();
-    }
+    List<NBRoute> routeConfigurations = downloadRouteConfigurations();
     return routeConfigurations;
   }
 
-  private List<Route> downloadRouteConfigurations() throws IOException,
+  private List<NBRoute> downloadRouteConfigurations() throws IOException,
       SAXException {
-    Digester digester = getRouteDigester();
-    List<Route> routes = downloadRouteList(digester);
-    List<Route> routeConfigurations = new ArrayList<Route>();
+    List<NBRoute> routes = _nextBusApiService.downloadRouteList();
+    List<NBRoute> routeConfigurations = new ArrayList<NBRoute>();
     int routeIndex = 0;
-    for (Route route : routes) {
+    for (NBRoute route : routes) {
       _log.info("routes processed=" + (++routeIndex) + "/" + routes.size());
-      List<Route> routeConfigs = downloadRouteConfigList(digester,
-          route.getTag());
+      List<NBRoute> routeConfigs = _nextBusApiService.downloadRouteConfigList(route.getTag());
       routeConfigurations.addAll(routeConfigs);
     }
     return routeConfigurations;
   }
 
-  @SuppressWarnings("unchecked")
-  private List<Route> downloadRouteList(Digester digester) throws IOException,
-      SAXException {
-    InputStream in = _downloader.openUrl("http://webservices.nextbus.com/service/publicXMLFeed?command=routeList&a="
-        + _agencyId);
-    return (List<Route>) digester.parse(in);
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<Route> downloadRouteConfigList(Digester digester, String routeTag)
-      throws IOException, SAXException {
-    InputStream in = _downloader.openUrl("http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a="
-        + _agencyId + "&r=" + routeTag);
-    return (List<Route>) digester.parse(in);
-  }
-
-  private Digester getRouteDigester() {
-    Digester digester = new Digester();
-    digester.addObjectCreate("body", ArrayList.class);
-
-    digester.addObjectCreate("body/route", Route.class);
-    digester.addSetProperties("body/route");
-    digester.addSetNext("body/route", "add");
-
-    digester.addObjectCreate("body/route/stop", Stop.class);
-    digester.addSetProperties("body/route/stop");
-    digester.addSetNext("body/route/stop", "addStop");
-
-    digester.addObjectCreate("body/route/direction", Direction.class);
-    digester.addSetProperties("body/route/direction");
-    digester.addSetNext("body/route/direction", "addDirection");
-
-    digester.addObjectCreate("body/route/direction/stop", Stop.class);
-    digester.addSetProperties("body/route/direction/stop");
-    digester.addSetNext("body/route/direction/stop", "addStop");
-
-    return digester;
-  }
-
   private List<RouteStopCoverage> getRouteStopCoverageForRouteConfigurations(
-      List<Route> routeConfigurations) {
+      List<NBRoute> routeConfigurations) {
     double downsampleRatio = computeDownsampleRatioForRouteConfigurations(routeConfigurations);
     List<RouteStopCoverage> coverage = new ArrayList<RouteStopCoverage>();
-    for (Route route : routeConfigurations) {
+    for (NBRoute route : routeConfigurations) {
       RouteStopCoverage routeStopCoverage = computeRouteStopCoverageForRoute(
           route, downsampleRatio);
       coverage.add(routeStopCoverage);
@@ -253,7 +197,7 @@ public class RouteStopCoverageService {
    * @return
    */
   private double computeDownsampleRatioForRouteConfigurations(
-      List<Route> routeConfigurations) {
+      List<NBRoute> routeConfigurations) {
     /**
      * Here, segment count is roughly analogous to the number of unique stops
      * per route.
@@ -268,15 +212,15 @@ public class RouteStopCoverageService {
     return downsampleRatio;
   }
 
-  private RouteStopCoverage computeRouteStopCoverageForRoute(Route route,
+  private RouteStopCoverage computeRouteStopCoverageForRoute(NBRoute route,
       double downsampleRatio) {
     Set<String> stopTags = new HashSet<String>();
     /**
      * We add the trip ends no matter what
      */
-    for (Direction direction : route.getDirections()) {
-      List<Stop> stops = direction.getStops();
-      Stop lastStop = stops.get(stops.size() - 1);
+    for (NBDirection direction : route.getDirections()) {
+      List<NBStop> stops = direction.getStops();
+      NBStop lastStop = stops.get(stops.size() - 1);
       stopTags.add(lastStop.getTag());
     }
     int segmentCount = getSegmentCountForRoute(route);
@@ -284,11 +228,11 @@ public class RouteStopCoverageService {
 
     while (stopTags.size() < maxCount) {
       Counter<String> counter = new Counter<String>();
-      for (Direction direction : route.getDirections()) {
-        List<Stop> stops = direction.getStops();
+      for (NBDirection direction : route.getDirections()) {
+        List<NBStop> stops = direction.getStops();
         int[] minDistance = getMinDistanceToActiveStop(stops, stopTags);
         for (int i = 0; i < stops.size(); i++) {
-          Stop stop = stops.get(i);
+          NBStop stop = stops.get(i);
           String tag = stop.getTag();
           if (!stopTags.contains(tag)) {
             counter.increment(tag, minDistance[i]);
@@ -302,16 +246,16 @@ public class RouteStopCoverageService {
   }
 
   /**
-   * As described in {@link #getSegmentCountForRoute(Route)}, this method counts
-   * the number of unique from_stop-to_stop pairs in each route configuration
-   * and sums them all together.
+   * As described in {@link #getSegmentCountForRoute(NBRoute)}, this method
+   * counts the number of unique from_stop-to_stop pairs in each route
+   * configuration and sums them all together.
    * 
    * @param routeConfigurations
    * @return
    */
-  private int getSegmentCountForRoutes(List<Route> routeConfigurations) {
+  private int getSegmentCountForRoutes(List<NBRoute> routeConfigurations) {
     int segmentCount = 0;
-    for (Route route : routeConfigurations) {
+    for (NBRoute route : routeConfigurations) {
       segmentCount += getSegmentCountForRoute(route);
     }
     return segmentCount;
@@ -319,20 +263,20 @@ public class RouteStopCoverageService {
 
   /**
    * A segment is a from_stop-to_stop pair contained in the stop sequences of a
-   * particular {@link Route} object. Here, we count the number of unique
+   * particular {@link NBRoute} object. Here, we count the number of unique
    * segment pairs in a route to give us a measure of the relative complexity of
    * the route.
    * 
    * @param route
    * @return
    */
-  private int getSegmentCountForRoute(Route route) {
+  private int getSegmentCountForRoute(NBRoute route) {
     Set<String> segments = new HashSet<String>();
-    for (Direction direction : route.getDirections()) {
-      List<Stop> stops = direction.getStops();
+    for (NBDirection direction : route.getDirections()) {
+      List<NBStop> stops = direction.getStops();
       for (int i = 0; i + 1 < stops.size(); i++) {
-        Stop prev = stops.get(i);
-        Stop next = stops.get(i + 1);
+        NBStop prev = stops.get(i);
+        NBStop next = stops.get(i + 1);
         segments.add(prev.getTag() + "|" + next.getTag());
       }
     }
@@ -340,7 +284,7 @@ public class RouteStopCoverageService {
     return count;
   }
 
-  private int[] getMinDistanceToActiveStop(List<Stop> stops,
+  private int[] getMinDistanceToActiveStop(List<NBStop> stops,
       Set<String> activeStops) {
     int[] left = getMinDistanceOnLeftToActiveStop(stops, activeStops);
     int[] right = getMinDistanceOnRightToActiveStop(stops, activeStops);
@@ -351,12 +295,12 @@ public class RouteStopCoverageService {
     return min;
   }
 
-  private int[] getMinDistanceOnLeftToActiveStop(List<Stop> stops,
+  private int[] getMinDistanceOnLeftToActiveStop(List<NBStop> stops,
       Set<String> activeStops) {
     int[] minDistanceOnLeft = new int[stops.size()];
     int currentMin = 0;
     for (int i = 0; i < stops.size(); i++) {
-      Stop stop = stops.get(i);
+      NBStop stop = stops.get(i);
       if (activeStops.contains(stop.getTag())) {
         currentMin = 0;
       }
@@ -366,12 +310,12 @@ public class RouteStopCoverageService {
     return minDistanceOnLeft;
   }
 
-  private int[] getMinDistanceOnRightToActiveStop(List<Stop> stops,
+  private int[] getMinDistanceOnRightToActiveStop(List<NBStop> stops,
       Set<String> includedStops) {
     int[] minDistanceOnRight = new int[stops.size()];
     int currentMin = 0;
     for (int i = stops.size() - 1; i >= 0; i--) {
-      Stop stop = stops.get(i);
+      NBStop stop = stops.get(i);
       if (includedStops.contains(stop.getTag())) {
         currentMin = 0;
       }
@@ -394,4 +338,5 @@ public class RouteStopCoverageService {
     }
 
   }
+
 }

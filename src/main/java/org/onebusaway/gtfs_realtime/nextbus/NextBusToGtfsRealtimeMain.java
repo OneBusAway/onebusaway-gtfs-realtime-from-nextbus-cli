@@ -28,7 +28,8 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.Parser;
 import org.onebusaway.cli.CommandLineInterfaceLibrary;
-import org.onebusaway.gtfs_realtime.nextbus.services.GtfsRealtimeService;
+import org.onebusaway.gtfs_realtime.nextbus.services.NextBusApiService;
+import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsService;
 import org.onebusaway.gtfs_realtime.nextbus.services.RouteStopCoverageService;
 import org.onebusaway.guice.jetty_exporter.JettyExporterModule;
 import org.onebusaway.guice.jsr250.JSR250Module;
@@ -49,26 +50,46 @@ public class NextBusToGtfsRealtimeMain {
 
   private static final String ARG_TRIP_UPDATES_URL = "tripUpdatesUrl";
 
+  private static final String ARG_CACHE_DIR = "cacheDir";
+
+  private static final String ARG_GTFS_PATH = "gtfsPath";
+
+  private static final String ARG_GTFS_TRIP_MATCHING = "gtfsTripMatching";
+
   public static void main(String[] args) throws Exception {
     NextBusToGtfsRealtimeMain m = new NextBusToGtfsRealtimeMain();
     m.run(args);
   }
 
-  private GtfsRealtimeService _gtfsRealtimeService;
+  private NextBusApiService _nextBusApiService;
 
-  private RouteStopCoverageService _modelFactory;
+  private RouteStopCoverageService _routeStopCoverageService;
+
+  private NextBusToGtfsService _matchingService;
 
   private LifecycleService _lifecycleService;
 
   @Inject
-  public void setModelFactory(RouteStopCoverageService modelFactory) {
-    _modelFactory = modelFactory;
+  public void setNextBusApiService(NextBusApiService nextBusApiService) {
+    _nextBusApiService = nextBusApiService;
   }
 
   @Inject
-  public void setGtfsRealtimeService(GtfsRealtimeService gtfsRealtimeService) {
-    _gtfsRealtimeService = gtfsRealtimeService;
+  public void setRouteStopCoverageService(
+      RouteStopCoverageService routeStopCoverageService) {
+    _routeStopCoverageService = routeStopCoverageService;
   }
+
+  @Inject
+  public void setMatchingService(NextBusToGtfsService matchingService) {
+    _matchingService = matchingService;
+  }
+
+  // @Inject
+  // public void setGtfsRealtimeService(GtfsRealtimeService gtfsRealtimeService)
+  // {
+  // No op to make sure dependency is instantiated
+  // }
 
   @Inject
   public void setLifecycleService(LifecycleService lifecycleService) {
@@ -88,17 +109,16 @@ public class NextBusToGtfsRealtimeMain {
     CommandLine cli = parser.parse(options, args);
 
     List<Module> modules = new ArrayList<Module>();
-    modules.add(new NextBusToGtfsRealtimeModule());
-    modules.add(new GtfsRealtimeExporterModule());
-    modules.add(new JettyExporterModule());
     modules.add(new JSR250Module());
+    modules.add(new JettyExporterModule());
+    modules.add(new GtfsRealtimeExporterModule());
+    modules.add(new NextBusToGtfsRealtimeModule());
 
     Injector injector = Guice.createInjector(modules);
     injector.injectMembers(this);
 
     String nextBusAgencyId = cli.getOptionValue(ARG_AGENCY_ID);
-    _modelFactory.setAgencyId(nextBusAgencyId);
-    _gtfsRealtimeService.setAgencyId(nextBusAgencyId);
+    _nextBusApiService.setAgencyId(nextBusAgencyId);
 
     if (cli.hasOption(ARG_TRIP_UPDATES_URL)) {
       URL url = new URL(cli.getOptionValue(ARG_TRIP_UPDATES_URL));
@@ -110,6 +130,16 @@ public class NextBusToGtfsRealtimeMain {
       TripUpdatesFileWriter writer = injector.getInstance(TripUpdatesFileWriter.class);
       writer.setPath(path);
     }
+
+    if (cli.hasOption(ARG_CACHE_DIR)) {
+      File cacheDir = new File(cli.getOptionValue(ARG_CACHE_DIR));
+      cacheDir.mkdirs();
+      _nextBusApiService.setCacheDirectory(cacheDir);
+    }
+    if (cli.hasOption(ARG_GTFS_PATH)) {
+      _matchingService.setGtfsPath(new File(cli.getOptionValue(ARG_GTFS_PATH)));
+    }
+    _matchingService.setGtfsTripMatching(cli.hasOption(ARG_GTFS_TRIP_MATCHING));
 
     _lifecycleService.start();
   }
@@ -125,5 +155,9 @@ public class NextBusToGtfsRealtimeMain {
 
     options.addOption(ARG_TRIP_UPDATES_PATH, true, "trip updates path");
     options.addOption(ARG_TRIP_UPDATES_URL, true, "trip updates url");
+    options.addOption(ARG_CACHE_DIR, true, "route configuration cache path");
+    options.addOption(ARG_GTFS_PATH, true, "gtfs path");
+    options.addOption(ARG_GTFS_TRIP_MATCHING, false,
+        "enable gtfs trip matching");
   }
 }

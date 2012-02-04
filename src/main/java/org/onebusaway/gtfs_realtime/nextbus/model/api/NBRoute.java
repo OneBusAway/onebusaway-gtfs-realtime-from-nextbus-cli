@@ -19,7 +19,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Route implements Serializable {
+public class NBRoute implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
@@ -39,9 +39,17 @@ public class Route implements Serializable {
 
   private double longMax;
 
-  private List<Stop> stops = new ArrayList<Stop>();
+  private String scheduleClass;
 
-  private List<Direction> directions = new ArrayList<Direction>();
+  private String serviceClass;
+
+  private String direction;
+
+  private List<NBStop> stops = new ArrayList<NBStop>();
+
+  private List<NBDirection> directions = new ArrayList<NBDirection>();
+
+  private List<NBTrip> trips = new ArrayList<NBTrip>();
 
   public String getTag() {
     return tag;
@@ -107,19 +115,56 @@ public class Route implements Serializable {
     this.longMax = longMax;
   }
 
-  public void addStop(Stop stop) {
+  public String getScheduleClass() {
+    return scheduleClass;
+  }
+
+  public void setScheduleClass(String scheduleClass) {
+    this.scheduleClass = scheduleClass;
+  }
+
+  public String getServiceClass() {
+    return serviceClass;
+  }
+
+  public void setServiceClass(String serviceClass) {
+    this.serviceClass = serviceClass;
+  }
+
+  public String getDirection() {
+    return direction;
+  }
+
+  public void setDirection(String direction) {
+    this.direction = direction;
+  }
+
+  public void addStop(NBStop stop) {
     stops.add(stop);
   }
 
-  public List<Stop> getStops() {
+  public List<NBStop> getStops() {
     return stops;
   }
 
-  public void addDirection(Direction direction) {
+  public void addDirection(NBDirection direction) {
     directions.add(direction);
   }
 
-  public List<Direction> getDirections() {
+  public List<NBDirection> getDirections() {
     return directions;
+  }
+
+  public void addTrip(NBTrip trip) {
+    trips.add(trip);
+  }
+
+  public List<NBTrip> getTrips() {
+    return trips;
+  }
+
+  @Override
+  public String toString() {
+    return tag;
   }
 }

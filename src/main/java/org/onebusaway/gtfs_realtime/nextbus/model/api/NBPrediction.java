@@ -17,7 +17,7 @@ package org.onebusaway.gtfs_realtime.nextbus.model.api;
 
 import java.io.Serializable;
 
-public class Prediction implements Serializable {
+public class NBPrediction implements Serializable {
 
   private static final long serialVersionUID = 1L;
 

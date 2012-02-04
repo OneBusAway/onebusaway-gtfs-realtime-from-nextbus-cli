@@ -15,9 +15,14 @@
  */
 package org.onebusaway.gtfs_realtime.nextbus;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+
 import org.onebusaway.gtfs_realtime.nextbus.services.DownloaderService;
-import org.onebusaway.gtfs_realtime.nextbus.services.GtfsRealtimeService;
+import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsRealtimeService;
+import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsService;
 import org.onebusaway.gtfs_realtime.nextbus.services.RouteStopCoverageService;
+import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeProvider;
 
 import com.google.inject.AbstractModule;
 
@@ -27,6 +32,10 @@ public class NextBusToGtfsRealtimeModule extends AbstractModule {
   protected void configure() {
     bind(DownloaderService.class);
     bind(RouteStopCoverageService.class);
-    bind(GtfsRealtimeService.class);
+    bind(NextBusToGtfsRealtimeService.class);
+    bind(GtfsRealtimeProvider.class).to(NextBusToGtfsRealtimeService.class);
+    bind(NextBusToGtfsService.class);
+    bind(ScheduledExecutorService.class).toInstance(
+        Executors.newSingleThreadScheduledExecutor());
   }
 }

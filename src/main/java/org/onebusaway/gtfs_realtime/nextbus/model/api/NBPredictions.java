@@ -19,7 +19,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Predictions implements Serializable {
+public class NBPredictions implements Serializable {
 
   private static final long serialVersionUID = 1L;
 
@@ -35,7 +35,7 @@ public class Predictions implements Serializable {
 
   private String routeTitle;
 
-  private List<Direction> directions = new ArrayList<Direction>();
+  private List<NBDirection> directions = new ArrayList<NBDirection>();
 
   public String getAgencyTitle() {
     return agencyTitle;
@@ -85,11 +85,11 @@ public class Predictions implements Serializable {
     this.routeTitle = routeTitle;
   }
 
-  public void addDirection(Direction direction) {
+  public void addDirection(NBDirection direction) {
     directions.add(direction);
   }
 
-  public List<Direction> getDirections() {
+  public List<NBDirection> getDirections() {
     return directions;
   }
 }
