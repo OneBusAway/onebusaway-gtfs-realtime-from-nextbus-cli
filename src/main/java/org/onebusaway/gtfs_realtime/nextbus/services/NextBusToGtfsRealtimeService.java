@@ -17,10 +17,8 @@ package org.onebusaway.gtfs_realtime.nextbus.services;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +33,6 @@ import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import org.onebusaway.collections.FactoryMap;
 import org.onebusaway.collections.MappingLibrary;
 import org.onebusaway.gtfs_realtime.nextbus.model.FlatPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
@@ -161,19 +158,11 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
 
     List<NBPredictions> allPredictions = _nextBusApiService.downloadPredictions(routeStopCoverage);
     List<FlatPrediction> flatPredictions = flattenPredictions(allPredictions);
+    List<FlatPrediction> predictionsWithTripIds = getPredictionsWithTripIds(flatPredictions);
 
-    Map<String, List<FlatPrediction>> predictionsByVehicleId = new HashMap<String, List<FlatPrediction>>();
-    Map<String, List<FlatPrediction>> predictionsByBlockId = new HashMap<String, List<FlatPrediction>>();
-    Map<String, List<FlatPrediction>> predictionsByTripId = new HashMap<String, List<FlatPrediction>>();
-    Map<String, List<FlatPrediction>> predictionsByRouteId = new HashMap<String, List<FlatPrediction>>();
-    groupPredictions(flatPredictions, predictionsByVehicleId,
-        predictionsByBlockId, predictionsByTripId, predictionsByRouteId);
-
-    /*
-    processPredictionGroup(predictionsByVehicleId);
+    Map<String, List<FlatPrediction>> predictionsByTripId = MappingLibrary.mapToValueList(
+        predictionsWithTripIds, "tripTag");
     processPredictionGroup(predictionsByTripId);
-    processPredictionGroup(predictionsByRouteId);
-    */
   }
 
   private List<FlatPrediction> flattenPredictions(
@@ -191,64 +180,30 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
           flat.setStopTag(predictions.getStopTag());
           flat.setTripTag(prediction.getTripTag());
           flat.setVehicle(prediction.getVehicle());
-
-          if (flat.getRouteTag() != null) {
-            flat.setRouteTag(_nextBusToGtfsService.getMappingForRouteTag(flat.getRouteTag()));
-            if (flat.getDirTag() != null && flat.getStopTag() != null) {
-              flat.setStopTag(_nextBusToGtfsService.getMappingForRouteDirectionStopTag(
-                  flat.getRouteTag(), flat.getDirTag(), flat.getStopTag()));
-            }
-          }
-
           flattened.add(flat);
         }
       }
     }
+
+    _nextBusToGtfsService.mapToGtfsIfApplicable(flattened);
+
     return flattened;
   }
 
-  private void groupPredictions(List<FlatPrediction> predictions,
-      Map<String, List<FlatPrediction>> predictionsByVehicleId,
-      Map<String, List<FlatPrediction>> predictionsByBlockId,
-      Map<String, List<FlatPrediction>> predictionsByTripId,
-      Map<String, List<FlatPrediction>> predictionsByRouteId) {
-
-    for (FlatPrediction flat : predictions) {
-      if (flat.getVehicle() != null) {
-        addToMap(predictionsByVehicleId, flat.getVehicle(), flat);
-      } else if (flat.getBlock() != null) {
-        addToMap(predictionsByBlockId, flat.getBlock(), flat);
-      } else if (flat.getTripTag() != null) {
-        addToMap(predictionsByTripId, flat.getTripTag(), flat);
-      } else if (flat.getRouteTag() != null) {
-        addToMap(predictionsByRouteId, flat.getRouteTag(), flat);
-      }
+  private List<FlatPrediction> getPredictionsWithTripIds(
+      List<FlatPrediction> predictions) {
+    List<FlatPrediction> predictionsWithTripId = new ArrayList<FlatPrediction>();
+    for (FlatPrediction prediction : predictions) {
+      if (prediction.getTripTag() != null)
+        predictionsWithTripId.add(prediction);
     }
-    
-    sortPredictions(predictionsByVehicleId.values());
-    sortPredictions(predictionsByTripId.values());
-    sortPredictions(predictionsByRouteId.values());
+    return predictionsWithTripId;
   }
 
-  private void sortPredictions(Collection<List<FlatPrediction>> allPredictions) {
-    for (List<FlatPrediction> predictions : allPredictions) {
-      Collections.sort(predictions, _predictionComparator);
-    }
-  }
-
-  private void processVehicleIdPredictionGroup(
-      Map<String, List<FlatPrediction>> predictionsById) {
-    for (Map.Entry<String, List<FlatPrediction>> entry : predictionsById.entrySet()) {
-      List<FlatPrediction> predictions = entry.getValue();
-     
-    }
-  }
-
-  /*
   private void processPredictionGroup(
       Map<String, List<FlatPrediction>> predictionsById) {
     for (Map.Entry<String, List<FlatPrediction>> entry : predictionsById.entrySet()) {
-      String id = entry.getKey();
+      String tripId = entry.getKey();
       List<FlatPrediction> predictions = entry.getValue();
       Collections.sort(predictions, _predictionComparator);
       FlatPrediction first = predictions.get(0);
@@ -261,7 +216,7 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
       vehicle.setId(first.getVehicle());
       tripUpdate.setVehicle(vehicle);
 
-      for (NBPrediction prediction : predictions) {
+      for (FlatPrediction prediction : predictions) {
         StopTimeUpdate.Builder stopTimeUpdate = StopTimeUpdate.newBuilder();
         stopTimeUpdate.setStopId(prediction.getStopTag());
         StopTimeEvent.Builder stopTimeEvent = StopTimeEvent.newBuilder();
@@ -273,17 +228,6 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
           tripUpdate.build());
       _tripUpdatesByTripId.put(tripId, withTimestamp);
     }
-  }
-  */
-
-  private void addToMap(Map<String, List<FlatPrediction>> predictionsById,
-      String id, FlatPrediction prediction) {
-    List<FlatPrediction> predictions = predictionsById.get(id);
-    if (predictions == null) {
-      predictions = new ArrayList<FlatPrediction>();
-      predictionsById.put(id, predictions);
-    }
-    predictions.add(prediction);
   }
 
   private void writeGtfsRealtimeOutput() {

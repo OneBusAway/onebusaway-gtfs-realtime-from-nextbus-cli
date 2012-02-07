@@ -1,6 +1,6 @@
 package org.onebusaway.gtfs_realtime.nextbus.model;
 
-public class FlatPrediction {
+public class FlatPrediction implements Comparable<FlatPrediction> {
   private String routeTag;
 
   private String stopTag;
@@ -69,5 +69,11 @@ public class FlatPrediction {
 
   public void setTripTag(String tripTag) {
     this.tripTag = tripTag;
+  }
+
+  @Override
+  public int compareTo(FlatPrediction o) {
+    return this.epochTime == o.epochTime ? 0 : (this.epochTime < o.epochTime
+        ? -1 : 1);
   }
 }

@@ -2,21 +2,35 @@ package org.onebusaway.gtfs_realtime.nextbus.services;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
+import org.onebusaway.collections.MappingLibrary;
+import org.onebusaway.collections.Min;
 import org.onebusaway.gtfs.impl.GtfsRelationalDaoImpl;
+import org.onebusaway.gtfs.model.Agency;
 import org.onebusaway.gtfs.model.Route;
 import org.onebusaway.gtfs.model.Stop;
+import org.onebusaway.gtfs.model.StopTime;
+import org.onebusaway.gtfs.model.calendar.ServiceDate;
 import org.onebusaway.gtfs.serialization.GtfsReader;
 import org.onebusaway.gtfs.services.GtfsRelationalDao;
 import org.onebusaway.gtfs_realtime.nextbus.model.FlatPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteDirectionStopKey;
+import org.onebusaway.gtfs_realtime.nextbus.model.ServiceDateBlockKey;
+import org.onebusaway.gtfs_realtime.nextbus.model.StopTimeIndex;
+import org.onebusaway.gtfs_realtime.nextbus.model.StopTimeIndices;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 
@@ -42,6 +56,12 @@ public class NextBusToGtfsService {
   private ConcurrentMap<String, String> _routeIdMappings = new ConcurrentHashMap<String, String>();
 
   private ConcurrentMap<RouteDirectionStopKey, String> _stopIdMappings = new ConcurrentHashMap<RouteDirectionStopKey, String>();
+
+  private ConcurrentMap<ServiceDateBlockKey, StopTimeIndices> _stopTimeMappings = new ConcurrentHashMap<ServiceDateBlockKey, StopTimeIndices>();
+
+  private TimeZone _agencyTimeZone = TimeZone.getDefault();
+
+  private Map<String, VehicleStatus> _vehicleStatusById = new HashMap<String, NextBusToGtfsService.VehicleStatus>();
 
   @Inject
   public void setStopMatching(NextBusToGtfsStopMatching stopMatching) {
@@ -72,6 +92,8 @@ public class NextBusToGtfsService {
     }
     GtfsRelationalDao dao = readGtfs();
 
+    updateTimeZone(dao);
+
     Map<NBStop, List<Stop>> potentialStopMatches = _stopMatching.getPotentialStopMatches(
         routes, dao.getAllStops());
 
@@ -91,25 +113,52 @@ public class NextBusToGtfsService {
     _stopIdMappings.putAll(stopIdMappings);
 
     if (_gtfsTripMatching) {
-      _tripMatching.getTripMatches(routeMatches, stopIdMappings, dao);
+      Map<ServiceDateBlockKey, StopTimeIndices> mapping = _tripMatching.getTripMatches(
+          routeMatches, stopIdMappings, dao);
+      _stopTimeMappings.clear();
+      _stopTimeMappings.putAll(mapping);
     }
   }
 
-  public String getMappingForRouteTag(String routeTag) {
-    String updated = _routeIdMappings.get(routeTag);
-    return updated == null ? routeTag : updated;
-  }
+  public void mapToGtfsIfApplicable(List<FlatPrediction> predictions) {
+    if (_gtfsPath == null)
+      return;
 
-  public String getMappingForRouteDirectionStopTag(String routeTag,
-      String directionTag, String stopTag) {
-    RouteDirectionStopKey key = new RouteDirectionStopKey(routeTag,
-        directionTag, stopTag);
-    String updated = _stopIdMappings.get(key);
-    return updated == null ? routeTag : updated;
-  }
+    for (FlatPrediction prediction : predictions) {
+      String updatedRouteTag = _routeIdMappings.get(prediction.getRouteTag());
+      String updatedStopTag = _stopIdMappings.get(new RouteDirectionStopKey(
+          prediction.getRouteTag(), prediction.getDirTag(),
+          prediction.getStopTag()));
 
-  public void applyGtfsTripMapping(List<FlatPrediction> predictions) {
+      if (updatedRouteTag != null)
+        prediction.setRouteTag(updatedRouteTag);
+      if (updatedStopTag != null)
+        prediction.setStopTag(updatedStopTag);
+    }
 
+    if (_gtfsTripMatching) {
+      Map<String, List<FlatPrediction>> predictionsByVehicleId = MappingLibrary.mapToValueList(
+          predictions, "vehicle");
+      for (Map.Entry<String, List<FlatPrediction>> tripEntry : predictionsByVehicleId.entrySet()) {
+        String vehicleId = tripEntry.getKey();
+        VehicleStatus status = updateVehicleStatus(vehicleId);
+        List<FlatPrediction> predictionsForVehicle = tripEntry.getValue();
+        Map<String, List<FlatPrediction>> predictionsByBlock = MappingLibrary.mapToValueList(
+            predictionsForVehicle, "block");
+        for (Map.Entry<String, List<FlatPrediction>> blockEntry : predictionsByBlock.entrySet()) {
+          String blockId = blockEntry.getKey();
+          List<FlatPrediction> predictionsForBlock = blockEntry.getValue();
+          Collections.sort(predictionsForBlock);
+          FlatPrediction firstPrediction = predictionsForBlock.get(0);
+          StopTimeIndices stopTimeIndices = _stopTimeMappings.get(new ServiceDateBlockKey(
+              firstPrediction.getRouteTag(), blockId, status.getServiceDate()));
+          if (stopTimeIndices != null) {
+            applyStopTimeIndicesToPredictions(predictionsForBlock, status,
+                stopTimeIndices);
+          }
+        }
+      }
+    }
   }
 
   /****
@@ -131,5 +180,135 @@ public class NextBusToGtfsService {
     } catch (IOException ex) {
       throw new IllegalStateException("error reading GTFS", ex);
     }
+  }
+
+  private void updateTimeZone(GtfsRelationalDao dao) {
+    for (Agency agency : dao.getAllAgencies()) {
+      if (agency.getTimezone() == null)
+        continue;
+      _agencyTimeZone = TimeZone.getTimeZone(agency.getTimezone());
+      return;
+    }
+  }
+
+  private VehicleStatus updateVehicleStatus(String vehicleId) {
+    VehicleStatus status = _vehicleStatusById.get(vehicleId);
+    if (status == null) {
+      Calendar c = Calendar.getInstance(_agencyTimeZone);
+      ServiceDate serviceDate = new ServiceDate(c);
+      Date asDate = serviceDate.getAsDate(_agencyTimeZone);
+      status = new VehicleStatus(serviceDate, asDate.getTime());
+      _vehicleStatusById.put(vehicleId, status);
+    }
+    status.touch();
+    return status;
+  }
+
+  public void applyStopTimeIndicesToPredictions(
+      List<FlatPrediction> predictions, VehicleStatus status,
+      StopTimeIndices stopTimeIndices) {
+    for (int predictionIndex = 0; predictionIndex < predictions.size(); ++predictionIndex) {
+      FlatPrediction prediction = predictions.get(predictionIndex);
+      StopTimeIndex index = stopTimeIndices.getIndexForStop(prediction.getStopTag());
+      if (index == null) {
+        continue;
+      }
+      int effectiveTime = (int) ((prediction.getEpochTime() - status.getServiceDateValue()) / 1000);
+      int[] stopTimeArray = index.getStopTimes();
+      int i = Arrays.binarySearch(stopTimeArray, effectiveTime);
+      if (i < 0) {
+        i = -(i + 1);
+      }
+      Min<Integer> m = new Min<Integer>();
+      for (int j = Math.max(0, i - 1); j < Math.min(i + 1, stopTimeArray.length); ++j) {
+        int scheduleDeviation = effectiveTime - stopTimeArray[j];
+        /**
+         * We're going to penalize more for being early than being late.
+         */
+        int scheduleDeviationFactor = scheduleDeviation < 0 ? 2 : 1;
+        /**
+         * Score is a function of how much the schedule deviation has changed
+         * since the previous
+         */
+        double score = Math.abs(scheduleDeviation
+            - status.getLastScheduleDeviation())
+            + scheduleDeviationFactor * Math.abs(scheduleDeviation);
+        m.add(score, j);
+      }
+      if (m.isEmpty()) {
+        continue;
+      }
+      i = m.getMinElement();
+
+      int scheduleDeviation = effectiveTime - stopTimeArray[i];
+      status.setLastScheduleDeviation(scheduleDeviation);
+
+      int[] indices = index.getIndices();
+      int indexIntoAllStopTimes = indices[i];
+      List<StopTime> stopTimes = stopTimeIndices.getStopTimes();
+      StopTime stopTime = stopTimes.get(indexIntoAllStopTimes);
+      prediction.setTripTag(stopTime.getTrip().getId().getId());
+
+      for (int nextPredictionIndex = predictionIndex + 1; nextPredictionIndex < predictions.size(); ++nextPredictionIndex) {
+        FlatPrediction nextPrediction = predictions.get(nextPredictionIndex);
+        indexIntoAllStopTimes = getNextStopTimeIndexWithStopId(stopTimes,
+            indexIntoAllStopTimes + 1, nextPrediction.getStopTag());
+        if (indexIntoAllStopTimes == stopTimes.size()) {
+          break;
+        }
+        StopTime nextStopTime = stopTimes.get(indexIntoAllStopTimes);
+        nextPrediction.setTripTag(nextStopTime.getTrip().getId().getId());
+      }
+      return;
+    }
+  }
+
+  private int getNextStopTimeIndexWithStopId(List<StopTime> stopTimes,
+      int currentIndex, String stopTag) {
+    while (currentIndex < stopTimes.size()) {
+      StopTime stopTime = stopTimes.get(currentIndex);
+      if (stopTime.getStop().getId().getId().equals(stopTag)) {
+        break;
+      }
+      currentIndex++;
+    }
+    return currentIndex;
+  }
+
+  private static class VehicleStatus {
+
+    private final ServiceDate _serviceDate;
+
+    private final long _serviceDateValue;
+
+    private long _lastUpdateTime;
+
+    private int _lastScheduleDeviation;
+
+    public VehicleStatus(ServiceDate serviceDate, long serviceDateValue) {
+      _serviceDate = serviceDate;
+      _serviceDateValue = serviceDateValue;
+    }
+
+    public ServiceDate getServiceDate() {
+      return _serviceDate;
+    }
+
+    public long getServiceDateValue() {
+      return _serviceDateValue;
+    }
+
+    public int getLastScheduleDeviation() {
+      return _lastScheduleDeviation;
+    }
+
+    public void setLastScheduleDeviation(int lastScheduleDeviation) {
+      _lastScheduleDeviation = lastScheduleDeviation;
+    }
+
+    public void touch() {
+      _lastUpdateTime = System.currentTimeMillis();
+    }
+
   }
 }

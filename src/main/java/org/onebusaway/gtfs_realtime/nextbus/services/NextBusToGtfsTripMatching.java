@@ -15,15 +15,22 @@ import javax.inject.Singleton;
 
 import org.onebusaway.collections.MappingLibrary;
 import org.onebusaway.collections.Min;
+import org.onebusaway.collections.tuple.T2;
+import org.onebusaway.collections.tuple.Tuples;
+import org.onebusaway.gtfs.impl.calendar.CalendarServiceDataFactoryImpl;
 import org.onebusaway.gtfs.model.AgencyAndId;
 import org.onebusaway.gtfs.model.Route;
 import org.onebusaway.gtfs.model.ServiceCalendar;
 import org.onebusaway.gtfs.model.StopTime;
 import org.onebusaway.gtfs.model.Trip;
-import org.onebusaway.gtfs.serialization.mappings.StopTimeFieldMappingFactory;
+import org.onebusaway.gtfs.model.calendar.CalendarServiceData;
+import org.onebusaway.gtfs.model.calendar.ServiceDate;
 import org.onebusaway.gtfs.services.GtfsRelationalDao;
+import org.onebusaway.gtfs.services.calendar.CalendarServiceDataFactory;
 import org.onebusaway.gtfs_realtime.nextbus.model.FlatStopTime;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteDirectionStopKey;
+import org.onebusaway.gtfs_realtime.nextbus.model.ServiceDateBlockKey;
+import org.onebusaway.gtfs_realtime.nextbus.model.StopTimeIndices;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStopTime;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBTrip;
@@ -53,96 +60,142 @@ public class NextBusToGtfsTripMatching {
     _nextBusApiServie = nextBusApiService;
   }
 
-  public void getTripMatches(Map<NBRoute, Route> routeMatches,
+  public Map<ServiceDateBlockKey, StopTimeIndices> getTripMatches(
+      Map<NBRoute, Route> routeMatches,
       Map<RouteDirectionStopKey, String> stopIdMappings, GtfsRelationalDao dao) {
+
+    Map<ServiceDateBlockKey, StopTimeIndices> mappings = new HashMap<ServiceDateBlockKey, StopTimeIndices>();
+
+    CalendarServiceDataFactory factory = new CalendarServiceDataFactoryImpl(dao);
+    CalendarServiceData data = factory.createData();
 
     for (Map.Entry<NBRoute, Route> entry : routeMatches.entrySet()) {
       NBRoute nbRoute = entry.getKey();
       Route gtfsRoute = entry.getValue();
       List<NBRoute> schedules = getSchedulesForRoute(nbRoute);
-      List<FlatStopTime> stopTimes = flattenSchedules(schedules, stopIdMappings);
-
-      Map<String, List<List<StopTime>>> tripStopTimesByServiceClass = computeTripStopTimesByServiceClass(
+      Map<String, List<AgencyAndId>> serviceIdsByServiceClass = getApplicableServiceIdsForByServiceClass(
           dao, gtfsRoute, schedules);
+      Map<String, List<List<StopTime>>> tripStopTimesByServiceClass = computeTripStopTimesByServiceClass(
+          dao, gtfsRoute, serviceIdsByServiceClass);
 
+      List<FlatStopTime> stopTimes = flattenSchedules(schedules, stopIdMappings);
       Map<String, List<FlatStopTime>> stopTimesByScheduleClass = MappingLibrary.mapToValueList(
           stopTimes, "scheduleClass");
+
       for (Map.Entry<String, List<FlatStopTime>> scheduleClassEntry : stopTimesByScheduleClass.entrySet()) {
+
         List<FlatStopTime> stopTimesForScheduleClass = scheduleClassEntry.getValue();
         Map<String, List<FlatStopTime>> stopTimesByServiceClass = MappingLibrary.mapToValueList(
             stopTimesForScheduleClass, "serviceClass");
+
         for (Map.Entry<String, List<FlatStopTime>> serviceClassEntry : stopTimesByServiceClass.entrySet()) {
           String serviceClass = serviceClassEntry.getKey();
-          List<List<StopTime>> gtfsStopTimesByTrip = tripStopTimesByServiceClass.get(serviceClass);
-          List<FlatStopTime> stopTimesForServiceClass = serviceClassEntry.getValue();
-          Map<String, List<FlatStopTime>> stopTimesByBlock = MappingLibrary.mapToValueList(
-              stopTimesForServiceClass, "blockTag");
+          List<AgencyAndId> serviceIds = serviceIdsByServiceClass.get(serviceClass);
 
-          for (Map.Entry<String, List<FlatStopTime>> blockEntry : stopTimesByBlock.entrySet()) {
-            List<FlatStopTime> stopTimesForBlock = blockEntry.getValue();
+          Min<T2<AgencyAndId, Map<String, StopTimeIndices>>> m = new Min<T2<AgencyAndId, Map<String, StopTimeIndices>>>();
 
-            fixTripGroupingsForBlock(stopTimesForBlock);
+          for (AgencyAndId serviceId : serviceIds) {
 
-            Map<Integer, List<FlatStopTime>> stopTimesByTrip = MappingLibrary.mapToValueList(
-                stopTimesForBlock, "tripIndex");
+            List<FlatStopTime> stopTimesForServiceClass = serviceClassEntry.getValue();
+            List<List<StopTime>> gtfsStopTimesByTrip = tripStopTimesByServiceClass.get(serviceClass);
+            Map<String, StopTimeIndices> stopTimeIndices = new HashMap<String, StopTimeIndices>();
 
-            List<StopTime> bestStopTimesForBlock = new ArrayList<StopTime>();
+            double score = findBestStopTimeIndicesForNextBusBlocks(
+                stopTimesForServiceClass, gtfsStopTimesByTrip, stopTimeIndices);
+            m.add(score, Tuples.tuple(serviceId, stopTimeIndices));
+          }
 
-            List<List<FlatStopTime>> stopTimesSortedByTrip = new ArrayList<List<FlatStopTime>>(
-                stopTimesByTrip.values());
-            Collections.sort(stopTimesSortedByTrip,
-                new FlatStopTimeListComparator());
-
-            for (List<FlatStopTime> stopTimesForTrip : stopTimesSortedByTrip) {
-              Collections.sort(stopTimesForTrip);
-              Min<List<StopTime>> m = new Min<List<StopTime>>();
-              for (List<StopTime> gtfsTrip : gtfsStopTimesByTrip) {
-                double score = computeStopTimeAlignmentScore(stopTimesForTrip,
-                    gtfsTrip);
-                m.add(score, gtfsTrip);
-              }
-
-              if (m.getMinValue() > 2 * 60) {
-                StringBuilder b = new StringBuilder();
-                for (FlatStopTime stopTime : stopTimesForTrip) {
-                  b.append("\n  ");
-                  b.append(stopTime.getRouteTag());
-                  b.append(" ");
-                  b.append(stopTime.getScheduleClass());
-                  b.append(" ");
-                  b.append(stopTime.getServiceClass());
-                  b.append(" ");
-                  b.append(stopTime.getDirectionTag());
-                  b.append(" ");
-                  b.append(stopTime.getBlockTag());
-                  b.append(" ");
-                  b.append(stopTime.getStopTag());
-                  b.append(" ");
-                  b.append(stopTime.getEpochTimeAsString());
-
-                }
-                _log.warn("no good match found for trip:" + b.toString());
-                stopTimesForTrip.get(0);
-              } else {
-                List<StopTime> bestStopTimes = m.getMinElement();
-                bestStopTimesForBlock.addAll(bestStopTimes);
-              }
+          T2<AgencyAndId, Map<String, StopTimeIndices>> best = m.getMinElement();
+          AgencyAndId serviceId = best.getFirst();
+          Map<String, StopTimeIndices> stopTimeIndicesByBlockId = best.getSecond();
+          List<ServiceDate> serviceDates = data.getServiceDatesForServiceId(serviceId);
+          for (ServiceDate serviceDate : serviceDates) {
+            for (Map.Entry<String, StopTimeIndices> gentry : stopTimeIndicesByBlockId.entrySet()) {
+              mappings.put(new ServiceDateBlockKey(gtfsRoute.getId().getId(),
+                  gentry.getKey(), serviceDate), gentry.getValue());
             }
-            Collections.sort(bestStopTimesForBlock);
           }
         }
       }
     }
+
+    return mappings;
   }
 
-  private String getStopTimesAsString(List<StopTime> stopTimes) {
-    StringBuilder b = new StringBuilder();
-    b.append(stopTimes.get(0).getTrip().getId());
-    for (StopTime stopTime : stopTimes) {
-      b.append(' ');
-      b.append(StopTimeFieldMappingFactory.getSecondsAsString(stopTime.getDepartureTime()));
+  private double findBestStopTimeIndicesForNextBusBlocks(
+      List<FlatStopTime> stopTimesForServiceClass,
+      List<List<StopTime>> gtfsStopTimesByTrip,
+      Map<String, StopTimeIndices> resultingStopTimeIndicesByBlockid) {
+
+    Map<String, List<FlatStopTime>> stopTimesByBlock = MappingLibrary.mapToValueList(
+        stopTimesForServiceClass, "blockTag");
+
+    double score = 0;
+
+    for (Map.Entry<String, List<FlatStopTime>> blockEntry : stopTimesByBlock.entrySet()) {
+      List<FlatStopTime> stopTimesForBlock = blockEntry.getValue();
+
+      fixTripGroupingsForBlock(stopTimesForBlock);
+
+      Map<Integer, List<FlatStopTime>> stopTimesByTrip = MappingLibrary.mapToValueList(
+          stopTimesForBlock, "tripIndex");
+
+      List<StopTime> bestStopTimesForBlock = new ArrayList<StopTime>();
+
+      List<List<FlatStopTime>> stopTimesSortedByTrip = new ArrayList<List<FlatStopTime>>(
+          stopTimesByTrip.values());
+      Collections.sort(stopTimesSortedByTrip, new FlatStopTimeListComparator());
+
+      for (List<FlatStopTime> stopTimesForTrip : stopTimesSortedByTrip) {
+        score += findBestGtfsTripForNextBusTrip(stopTimesForTrip,
+            gtfsStopTimesByTrip, bestStopTimesForBlock);
+      }
+      Collections.sort(bestStopTimesForBlock);
+      StopTimeIndices indices = StopTimeIndices.create(bestStopTimesForBlock);
+      resultingStopTimeIndicesByBlockid.put(blockEntry.getKey(), indices);
     }
-    return b.toString();
+
+    return score;
+  }
+
+  private double findBestGtfsTripForNextBusTrip(List<FlatStopTime> nextBusTrip,
+      List<List<StopTime>> gtfsStopTimesByTrip,
+      List<StopTime> bestStopTimesForBlock) {
+
+    Collections.sort(nextBusTrip);
+
+    Min<List<StopTime>> m = new Min<List<StopTime>>();
+    for (List<StopTime> gtfsTrip : gtfsStopTimesByTrip) {
+      double score = computeStopTimeAlignmentScore(nextBusTrip, gtfsTrip);
+      m.add(score, gtfsTrip);
+    }
+
+    if (m.getMinValue() > 2 * 60) {
+      StringBuilder b = new StringBuilder();
+      for (FlatStopTime stopTime : nextBusTrip) {
+        b.append("\n  ");
+        b.append(stopTime.getRouteTag());
+        b.append(" ");
+        b.append(stopTime.getScheduleClass());
+        b.append(" ");
+        b.append(stopTime.getServiceClass());
+        b.append(" ");
+        b.append(stopTime.getDirectionTag());
+        b.append(" ");
+        b.append(stopTime.getBlockTag());
+        b.append(" ");
+        b.append(stopTime.getStopTag());
+        b.append(" ");
+        b.append(stopTime.getEpochTimeAsString());
+
+      }
+      _log.warn("no good match found for trip:" + b.toString());
+    } else {
+      List<StopTime> bestStopTimes = m.getMinElement();
+      bestStopTimesForBlock.addAll(bestStopTimes);
+
+    }
+    return m.getMinValue();
   }
 
   private List<NBRoute> getSchedulesForRoute(NBRoute nbRoute) {
@@ -191,21 +244,35 @@ public class NextBusToGtfsTripMatching {
     return flattened;
   }
 
-  private Map<String, List<List<StopTime>>> computeTripStopTimesByServiceClass(
+  private Map<String, List<AgencyAndId>> getApplicableServiceIdsForByServiceClass(
       GtfsRelationalDao dao, Route gtfsRoute, List<NBRoute> schedules) {
     Set<String> serviceClasses = new HashSet<String>();
     for (NBRoute schedule : schedules) {
       serviceClasses.add(schedule.getServiceClass());
     }
 
+    Map<String, List<AgencyAndId>> serviceIdsByServiceClass = new HashMap<String, List<AgencyAndId>>();
+
+    for (String serviceClass : serviceClasses) {
+      List<AgencyAndId> serviceIds = getApplicableServiceIdsForServiceClass(
+          serviceClass, dao);
+      serviceIdsByServiceClass.put(serviceClass, serviceIds);
+    }
+    return serviceIdsByServiceClass;
+  }
+
+  private Map<String, List<List<StopTime>>> computeTripStopTimesByServiceClass(
+      GtfsRelationalDao dao, Route gtfsRoute,
+      Map<String, List<AgencyAndId>> serviceIdsByServiceClass) {
+
     Map<String, List<List<StopTime>>> tripStopTimesByServiceClass = new HashMap<String, List<List<StopTime>>>();
 
     Map<AgencyAndId, List<Trip>> tripsByServiceId = MappingLibrary.mapToValueList(
         dao.getTripsForRoute(gtfsRoute), "serviceId");
 
-    for (String serviceClass : serviceClasses) {
-      List<AgencyAndId> serviceIds = getApplicableServiceIdsForServiceClass(
-          serviceClass, dao);
+    for (Map.Entry<String, List<AgencyAndId>> entry : serviceIdsByServiceClass.entrySet()) {
+      String serviceClass = entry.getKey();
+      List<AgencyAndId> serviceIds = entry.getValue();
       List<List<StopTime>> allStopTimes = new ArrayList<List<StopTime>>();
       for (AgencyAndId serviceId : serviceIds) {
         List<Trip> trips = tripsByServiceId.get(serviceId);
@@ -354,7 +421,7 @@ public class NextBusToGtfsTripMatching {
     }
 
     if (allMisses)
-      return Integer.MAX_VALUE;
+      return 4 * 60 * 60;
     return score;
   }
 
@@ -412,6 +479,5 @@ public class NextBusToGtfsTripMatching {
       StopTime stopTime2 = o2.get(0);
       return stopTime1.getDepartureTime() - stopTime2.getDepartureTime();
     }
-
   }
 }

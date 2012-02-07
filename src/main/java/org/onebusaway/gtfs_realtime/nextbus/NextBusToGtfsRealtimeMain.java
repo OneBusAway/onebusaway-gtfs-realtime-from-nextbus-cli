@@ -29,8 +29,8 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.Parser;
 import org.onebusaway.cli.CommandLineInterfaceLibrary;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusApiService;
+import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsRealtimeService;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsService;
-import org.onebusaway.gtfs_realtime.nextbus.services.RouteStopCoverageService;
 import org.onebusaway.guice.jetty_exporter.JettyExporterModule;
 import org.onebusaway.guice.jsr250.JSR250Module;
 import org.onebusaway.guice.jsr250.LifecycleService;
@@ -63,8 +63,6 @@ public class NextBusToGtfsRealtimeMain {
 
   private NextBusApiService _nextBusApiService;
 
-  private RouteStopCoverageService _routeStopCoverageService;
-
   private NextBusToGtfsService _matchingService;
 
   private LifecycleService _lifecycleService;
@@ -75,21 +73,15 @@ public class NextBusToGtfsRealtimeMain {
   }
 
   @Inject
-  public void setRouteStopCoverageService(
-      RouteStopCoverageService routeStopCoverageService) {
-    _routeStopCoverageService = routeStopCoverageService;
-  }
-
-  @Inject
   public void setMatchingService(NextBusToGtfsService matchingService) {
     _matchingService = matchingService;
   }
 
-  // @Inject
-  // public void setGtfsRealtimeService(GtfsRealtimeService gtfsRealtimeService)
-  // {
-  // No op to make sure dependency is instantiated
-  // }
+  @Inject
+  public void setGtfsRealtimeService(
+      NextBusToGtfsRealtimeService gtfsRealtimeService) {
+    // No-op to make sure dependency is instantiated
+  }
 
   @Inject
   public void setLifecycleService(LifecycleService lifecycleService) {
