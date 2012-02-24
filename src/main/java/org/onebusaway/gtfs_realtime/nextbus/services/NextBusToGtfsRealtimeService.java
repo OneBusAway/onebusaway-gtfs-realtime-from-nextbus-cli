@@ -40,7 +40,7 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
 import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeProvider;
-import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeSupport;
+import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeLibrary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
@@ -68,11 +68,11 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
 
   private ConcurrentMap<String, TripUpdateWithTimestamp> _tripUpdatesByTripId = new ConcurrentHashMap<String, TripUpdateWithTimestamp>();
 
-  private volatile FeedMessage _tripUpdatesMessage = GtfsRealtimeSupport.createFeedMessageBuilder().build();
+  private volatile FeedMessage _tripUpdatesMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
 
-  private final FeedMessage _vehiclePositionsMessage = GtfsRealtimeSupport.createFeedMessageBuilder().build();
+  private final FeedMessage _vehiclePositionsMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
 
-  private final FeedMessage _alertsMessage = GtfsRealtimeSupport.createFeedMessageBuilder().build();
+  private final FeedMessage _alertsMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
 
   private ExecutorService _executor;
 
@@ -233,7 +233,7 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
   private void writeGtfsRealtimeOutput() {
     Iterator<TripUpdateWithTimestamp> iterator = _tripUpdatesByTripId.values().iterator();
 
-    FeedMessage.Builder feedMessageBuilder = GtfsRealtimeSupport.createFeedMessageBuilder();
+    FeedMessage.Builder feedMessageBuilder = GtfsRealtimeLibrary.createFeedMessageBuilder();
     long now = feedMessageBuilder.getHeader().getTimestamp();
 
     while (iterator.hasNext()) {
