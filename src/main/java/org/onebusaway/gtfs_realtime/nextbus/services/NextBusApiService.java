@@ -45,6 +45,9 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStopTime;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBTrip;
 import org.xml.sax.SAXException;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+
 @Singleton
 public class NextBusApiService {
 
@@ -79,9 +82,14 @@ public class NextBusApiService {
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteConfigList(String routeTag)
       throws IOException, SAXException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a="
-        + _agencyId + "&r=" + routeTag;
-    return (List<NBRoute>) digestUrl(url, true);
+      try {
+          String url = new URI("http","webservices.nextbus.com","/service/publicXMLFeed",
+                  "command=routeConfig&a="+_agencyId+"&r="+routeTag, "").toASCIIString();
+          return (List<NBRoute>) digestUrl(url, true);
+      } catch (URISyntaxException e) {
+          e.printStackTrace();
+      }
+      return new ArrayList<NBRoute>();
   }
 
   @SuppressWarnings("unchecked")
