@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: org.onebusaway.gtfs_realtime.nextbus.NextBusToGtfsRealtime
+ Main
+
