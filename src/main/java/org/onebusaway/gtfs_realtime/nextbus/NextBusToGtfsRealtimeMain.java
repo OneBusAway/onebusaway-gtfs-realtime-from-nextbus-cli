@@ -121,6 +121,7 @@ public class NextBusToGtfsRealtimeMain {
       File path = new File(cli.getOptionValue(ARG_TRIP_UPDATES_PATH));
       TripUpdatesFileWriter writer = injector.getInstance(TripUpdatesFileWriter.class);
       writer.setPath(path);
+        writer.start(); //PostConstruct doesn't work on abstract classes
     }
 
     if (cli.hasOption(ARG_CACHE_DIR)) {
