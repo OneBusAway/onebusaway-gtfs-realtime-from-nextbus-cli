@@ -238,7 +238,7 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
 
     while (iterator.hasNext()) {
       TripUpdateWithTimestamp update = iterator.next();
-      if (update.getTimestamp() + 5 * 60 * 1000 < now) {
+      if (update.getTimestamp() / 1000 + 5 * 60 < now) {
         iterator.remove();
       } else {
         TripUpdate tripUpdate = update.getTripUpdate();
