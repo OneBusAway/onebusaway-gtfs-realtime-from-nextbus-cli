@@ -17,8 +17,8 @@ package org.onebusaway.gtfs_realtime.nextbus;
 
 import java.io.File;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -28,15 +28,15 @@ import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.Parser;
 import org.onebusaway.cli.CommandLineInterfaceLibrary;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeFileWriter;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeServlet;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeSource;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.TripUpdates;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.VehiclePositions;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusApiService;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsRealtimeService;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsService;
-import org.onebusaway.guice.jetty_exporter.JettyExporterModule;
-import org.onebusaway.guice.jsr250.JSR250Module;
 import org.onebusaway.guice.jsr250.LifecycleService;
-import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeExporterModule;
-import org.onebusway.gtfs_realtime.exporter.TripUpdatesFileWriter;
-import org.onebusway.gtfs_realtime.exporter.TripUpdatesServlet;
 
 import com.google.inject.Guice;
 import com.google.inject.Injector;
@@ -49,6 +49,10 @@ public class NextBusToGtfsRealtimeMain {
   private static final String ARG_TRIP_UPDATES_PATH = "tripUpdatesPath";
 
   private static final String ARG_TRIP_UPDATES_URL = "tripUpdatesUrl";
+
+  private static final String ARG_VEHICLE_POSITIONS_PATH = "vehiclePositionsPath";
+
+  private static final String ARG_VEHICLE_POSITIONS_URL = "vehiclePositionsUrl";
 
   private static final String ARG_CACHE_DIR = "cacheDir";
 
@@ -65,6 +69,12 @@ public class NextBusToGtfsRealtimeMain {
 
   private NextBusToGtfsService _matchingService;
 
+  private GtfsRealtimeSource _tripUpdatesSource;
+
+  private GtfsRealtimeSource _vehiclePositionsSource;
+
+  private NextBusToGtfsRealtimeService _nextBusToGtfsRealtimeService;
+
   private LifecycleService _lifecycleService;
 
   @Inject
@@ -78,9 +88,21 @@ public class NextBusToGtfsRealtimeMain {
   }
 
   @Inject
-  public void setGtfsRealtimeService(
-      NextBusToGtfsRealtimeService gtfsRealtimeService) {
-    // No-op to make sure dependency is instantiated
+  public void setTripUpdatesSource(@TripUpdates
+  GtfsRealtimeSource tripUpdatesSource) {
+    _tripUpdatesSource = tripUpdatesSource;
+  }
+
+  @Inject
+  public void setVehiclePositionsSource(@VehiclePositions
+  GtfsRealtimeSource vehiclePositionsSource) {
+    _vehiclePositionsSource = vehiclePositionsSource;
+  }
+
+  @Inject
+  public void setNextBusToGtfsRealtimeService(
+      NextBusToGtfsRealtimeService nextBusToGtfsRealtimeService) {
+    _nextBusToGtfsRealtimeService = nextBusToGtfsRealtimeService;
   }
 
   @Inject
@@ -100,11 +122,8 @@ public class NextBusToGtfsRealtimeMain {
     Parser parser = new GnuParser();
     CommandLine cli = parser.parse(options, args);
 
-    List<Module> modules = new ArrayList<Module>();
-    modules.add(new JSR250Module());
-    modules.add(new JettyExporterModule());
-    modules.add(new GtfsRealtimeExporterModule());
-    modules.add(new NextBusToGtfsRealtimeModule());
+    Set<Module> modules = new HashSet<Module>();
+    NextBusToGtfsRealtimeModule.addModuleAndDependencies(modules);
 
     Injector injector = Guice.createInjector(modules);
     injector.injectMembers(this);
@@ -113,14 +132,30 @@ public class NextBusToGtfsRealtimeMain {
     _nextBusApiService.setAgencyId(nextBusAgencyId);
 
     if (cli.hasOption(ARG_TRIP_UPDATES_URL)) {
-      URL url = new URL(cli.getOptionValue(ARG_TRIP_UPDATES_URL));
-      TripUpdatesServlet servlet = injector.getInstance(TripUpdatesServlet.class);
-      servlet.setUrl(url);
+      GtfsRealtimeServlet servlet = injector.getInstance(GtfsRealtimeServlet.class);
+      servlet.setSource(_tripUpdatesSource);
+      servlet.setUrl(new URL(cli.getOptionValue(ARG_TRIP_UPDATES_URL)));
+      _nextBusToGtfsRealtimeService.setEnableTripUpdates(true);
     }
     if (cli.hasOption(ARG_TRIP_UPDATES_PATH)) {
-      File path = new File(cli.getOptionValue(ARG_TRIP_UPDATES_PATH));
-      TripUpdatesFileWriter writer = injector.getInstance(TripUpdatesFileWriter.class);
-      writer.setPath(path);
+      GtfsRealtimeFileWriter fileWriter = injector.getInstance(GtfsRealtimeFileWriter.class);
+      fileWriter.setSource(_tripUpdatesSource);
+      fileWriter.setPath(new File(cli.getOptionValue(ARG_TRIP_UPDATES_PATH)));
+      _nextBusToGtfsRealtimeService.setEnableTripUpdates(true);
+    }
+
+    if (cli.hasOption(ARG_VEHICLE_POSITIONS_URL)) {
+      GtfsRealtimeServlet servlet = injector.getInstance(GtfsRealtimeServlet.class);
+      servlet.setSource(_vehiclePositionsSource);
+      servlet.setUrl(new URL(cli.getOptionValue(ARG_VEHICLE_POSITIONS_URL)));
+      _nextBusToGtfsRealtimeService.setEnableVehiclePositions(true);
+    }
+    if (cli.hasOption(ARG_VEHICLE_POSITIONS_PATH)) {
+      GtfsRealtimeFileWriter fileWriter = injector.getInstance(GtfsRealtimeFileWriter.class);
+      fileWriter.setSource(_vehiclePositionsSource);
+      fileWriter.setPath(new File(
+          cli.getOptionValue(ARG_VEHICLE_POSITIONS_PATH)));
+      _nextBusToGtfsRealtimeService.setEnableVehiclePositions(true);
     }
 
     if (cli.hasOption(ARG_CACHE_DIR)) {
@@ -147,6 +182,9 @@ public class NextBusToGtfsRealtimeMain {
 
     options.addOption(ARG_TRIP_UPDATES_PATH, true, "trip updates path");
     options.addOption(ARG_TRIP_UPDATES_URL, true, "trip updates url");
+    options.addOption(ARG_VEHICLE_POSITIONS_PATH, true,
+        "vehicle positions path");
+    options.addOption(ARG_VEHICLE_POSITIONS_URL, true, "vehicle positions url");
     options.addOption(ARG_CACHE_DIR, true, "route configuration cache path");
     options.addOption(ARG_GTFS_PATH, true, "gtfs path");
     options.addOption(ARG_GTFS_TRIP_MATCHING, false,

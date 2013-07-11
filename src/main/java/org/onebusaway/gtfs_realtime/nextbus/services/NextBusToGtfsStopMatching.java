@@ -38,6 +38,8 @@ import org.onebusaway.gtfs_realtime.nextbus.model.RouteDirectionStopKey;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Envelope;
@@ -45,6 +47,8 @@ import com.vividsolutions.jts.index.strtree.STRtree;
 
 @Singleton
 public class NextBusToGtfsStopMatching {
+
+  private static Logger _log = LoggerFactory.getLogger(NextBusToGtfsStopMatching.class);
 
   private double _stopMatchingDistanceThreshold = 75;
 
@@ -66,13 +70,24 @@ public class NextBusToGtfsStopMatching {
     tree.build();
 
     Map<NBStop, List<Stop>> potentialMatches = new HashMap<NBStop, List<Stop>>();
+    int stopsWithNoMatches = 0;
     for (NBStop nbStop : nbStopsByTag.values()) {
       CoordinateBounds b = SphericalGeometryLibrary.bounds(nbStop.getLat(),
           nbStop.getLon(), _stopMatchingDistanceThreshold);
       Envelope env = new Envelope(b.getMinLon(), b.getMaxLon(), b.getMinLat(),
           b.getMaxLat());
       List<Stop> stopsInEnvelope = tree.query(env);
+      if (stopsInEnvelope.isEmpty()) {
+        _log.warn("stop with no match: tag=" + nbStop.getTag() + " lat="
+            + nbStop.getLat() + " lon=" + nbStop.getLon());
+        stopsWithNoMatches++;
+      }
       potentialMatches.put(nbStop, stopsInEnvelope);
+    }
+
+    if (stopsWithNoMatches > 0) {
+      _log.warn("stops without matches: " + stopsWithNoMatches + "/"
+          + nbStopsByTag.size());
     }
 
     return potentialMatches;
@@ -105,6 +120,9 @@ public class NextBusToGtfsStopMatching {
         List<Match> matches = new ArrayList<Match>();
         for (NBStop fromStop : direction.getStops()) {
           List<Stop> toStops = potentialStopMatches.get(fromStop);
+          if (toStops.isEmpty()) {
+            continue;
+          }
           Match m = new Match(fromStop, toStops);
           matches.add(m);
         }
@@ -116,8 +134,16 @@ public class NextBusToGtfsStopMatching {
         recursivelyBuildAndScoreAssignment(matches, 0, assignment, m);
         Assignment bestAssignment = m.getMinElement();
 
+        if (bestAssignment == null) {
+          throw new IllegalStateException();
+        }
+
         for (NBStop stop : direction.getStops()) {
-          String stopId = bestAssignment._stops.get(stop).getId().getId();
+          Stop gtfsStop = bestAssignment.getGtfsStopForNBStop(stop);
+          if (gtfsStop == null) {
+            continue;
+          }
+          String stopId = gtfsStop.getId().getId();
           RouteDirectionStopKey key = new RouteDirectionStopKey(
               nbRoute.getTag(), direction.getTag(), stop.getTag());
           stopIdMappings.put(key, stopId);
@@ -253,9 +279,16 @@ public class NextBusToGtfsStopMatching {
       _stops.putAll(o._stops);
     }
 
+    public Stop getGtfsStopForNBStop(NBStop stop) {
+      return _stops.get(stop);
+    }
+
     public void applyMatch(Match match, int index) {
       NBStop from = match.from;
       Stop to = match.to.get(index);
+      if (from.getTag() == null) {
+        throw new IllegalStateException();
+      }
       _stops.put(from, to);
     }
 

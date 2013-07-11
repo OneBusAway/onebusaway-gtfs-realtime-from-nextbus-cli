@@ -19,11 +19,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -33,28 +31,32 @@ import javax.annotation.PreDestroy;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import org.onebusaway.collections.MappingLibrary;
+import org.onebusaway.collections.FactoryMap;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeIncrementalUpdate;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeSink;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.TripUpdates;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.VehiclePositions;
 import org.onebusaway.gtfs_realtime.nextbus.model.FlatPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
-import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeProvider;
-import org.onebusway.gtfs_realtime.exporter.GtfsRealtimeLibrary;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBVehicle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
 import com.google.transit.realtime.GtfsRealtime.FeedEntity;
-import com.google.transit.realtime.GtfsRealtime.FeedMessage;
+import com.google.transit.realtime.GtfsRealtime.Position;
 import com.google.transit.realtime.GtfsRealtime.TripDescriptor;
 import com.google.transit.realtime.GtfsRealtime.TripUpdate;
 import com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeEvent;
 import com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeUpdate;
 import com.google.transit.realtime.GtfsRealtime.VehicleDescriptor;
+import com.google.transit.realtime.GtfsRealtime.VehiclePosition;
 
 @Singleton
-public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
+public class NextBusToGtfsRealtimeService {
 
   private static final Logger _log = LoggerFactory.getLogger(NextBusToGtfsRealtimeService.class);
 
@@ -66,23 +68,25 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
 
   private NextBusToGtfsService _nextBusToGtfsService;
 
-  private ConcurrentMap<String, TripUpdateWithTimestamp> _tripUpdatesByTripId = new ConcurrentHashMap<String, TripUpdateWithTimestamp>();
+  private GtfsRealtimeSink _tripUpdatesSink;
 
-  private volatile FeedMessage _tripUpdatesMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
-
-  private final FeedMessage _vehiclePositionsMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
-
-  private final FeedMessage _alertsMessage = GtfsRealtimeLibrary.createFeedMessageBuilder().build();
+  private GtfsRealtimeSink _vehiclePositionsSink;
 
   private ExecutorService _executor;
 
   private Future<?> _task;
+
+  private Map<String, Long> _prevVehiclePositionRequestTimeByRouteTag = new HashMap<String, Long>();
 
   /**
    * The minimum amount of time, in seconds, between repeated requests for the
    * same route.
    */
   private int _minimumTimeBetweenRequests = 30;
+
+  private boolean _tripUpdatesEnabled = false;
+
+  private boolean _vehiclePositionsEnabled = false;
 
   @Inject
   public void setRouteStopCoverageService(
@@ -100,6 +104,18 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
     _nextBusToGtfsService = nextBusToGtfsService;
   }
 
+  @Inject
+  public void setTripUpdatesSink(@TripUpdates
+  GtfsRealtimeSink tripUpdatesSink) {
+    _tripUpdatesSink = tripUpdatesSink;
+  }
+
+  @Inject
+  public void setVehiclePositionsSink(@VehiclePositions
+  GtfsRealtimeSink vehiclePositionsSink) {
+    _vehiclePositionsSink = vehiclePositionsSink;
+  }
+
   /**
    * Sets the minimum amount of time, in seconds, between repeated requests for
    * the same route.
@@ -110,23 +126,12 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
     _minimumTimeBetweenRequests = mininmumTimeInSeconds;
   }
 
-  /****
-   * {@link GtfsRealtimeProvider} Interface
-   ****/
-
-  @Override
-  public FeedMessage getTripUpdates() {
-    return _tripUpdatesMessage;
+  public void setEnableTripUpdates(boolean enableTripUpdates) {
+    _tripUpdatesEnabled = enableTripUpdates;
   }
 
-  @Override
-  public FeedMessage getVehiclePositions() {
-    return _vehiclePositionsMessage;
-  }
-
-  @Override
-  public FeedMessage getAlerts() {
-    return _alertsMessage;
+  public void setEnableVehiclePositions(boolean enableVehiclePositions) {
+    _vehiclePositionsEnabled = enableVehiclePositions;
   }
 
   /****
@@ -151,18 +156,27 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
     }
   }
 
-  private void processRouteStopCoverage(RouteStopCoverage routeStopCoverage)
+  private void processRoute(RouteStopCoverage routeStopCoverage)
       throws IOException, SAXException {
 
-    _log.info("route=" + routeStopCoverage.getRouteTag());
+    String routeTag = routeStopCoverage.getRouteTag();
+    _log.info("route=" + routeTag);
 
+    if (_tripUpdatesEnabled) {
+      generateTripUpdates(routeStopCoverage);
+    }
+
+    if (_vehiclePositionsEnabled) {
+      generateVehiclePositions(routeTag);
+    }
+  }
+
+  private void generateTripUpdates(RouteStopCoverage routeStopCoverage)
+      throws IOException, SAXException {
     List<NBPredictions> allPredictions = _nextBusApiService.downloadPredictions(routeStopCoverage);
     List<FlatPrediction> flatPredictions = flattenPredictions(allPredictions);
-    List<FlatPrediction> predictionsWithTripIds = getPredictionsWithTripIds(flatPredictions);
-
-    Map<String, List<FlatPrediction>> predictionsByTripId = MappingLibrary.mapToValueList(
-        predictionsWithTripIds, "tripTag");
-    processPredictionGroup(predictionsByTripId);
+    Map<TripUpdateId, List<FlatPrediction>> predictionsById = groupPredictionsById(flatPredictions);
+    processPredictionGroup(predictionsById);
   }
 
   private List<FlatPrediction> flattenPredictions(
@@ -190,30 +204,42 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
     return flattened;
   }
 
-  private List<FlatPrediction> getPredictionsWithTripIds(
-      List<FlatPrediction> predictions) {
-    List<FlatPrediction> predictionsWithTripId = new ArrayList<FlatPrediction>();
-    for (FlatPrediction prediction : predictions) {
-      if (prediction.getTripTag() != null)
-        predictionsWithTripId.add(prediction);
+  private Map<TripUpdateId, List<FlatPrediction>> groupPredictionsById(
+      List<FlatPrediction> flatPredictions) {
+    Map<TripUpdateId, List<FlatPrediction>> predictionsById = new FactoryMap<TripUpdateId, List<FlatPrediction>>(
+        new ArrayList<FlatPrediction>());
+    for (FlatPrediction prediction : flatPredictions) {
+      String vehicleId = prediction.getVehicle();
+      if (vehicleId == null) {
+        continue;
+      }
+      String tripId = prediction.getTripTag();
+      TripUpdateId id = new TripUpdateId(vehicleId, tripId);
+      predictionsById.get(id).add(prediction);
     }
-    return predictionsWithTripId;
+    return predictionsById;
   }
 
   private void processPredictionGroup(
-      Map<String, List<FlatPrediction>> predictionsById) {
-    for (Map.Entry<String, List<FlatPrediction>> entry : predictionsById.entrySet()) {
-      String tripId = entry.getKey();
+      Map<TripUpdateId, List<FlatPrediction>> predictionsById) {
+    GtfsRealtimeIncrementalUpdate update = new GtfsRealtimeIncrementalUpdate();
+    for (Map.Entry<TripUpdateId, List<FlatPrediction>> entry : predictionsById.entrySet()) {
+      TripUpdateId id = entry.getKey();
       List<FlatPrediction> predictions = entry.getValue();
       Collections.sort(predictions, _predictionComparator);
       FlatPrediction first = predictions.get(0);
 
       TripUpdate.Builder tripUpdate = TripUpdate.newBuilder();
       TripDescriptor.Builder tripDescriptor = TripDescriptor.newBuilder();
-      tripDescriptor.setTripId(tripId);
+      if (first.getRouteTag() != null) {
+        tripDescriptor.setRouteId(first.getRouteTag());
+      }
+      if (id.getTripId() != null) {
+        tripDescriptor.setTripId(id.getTripId());
+      }
       tripUpdate.setTrip(tripDescriptor);
       VehicleDescriptor.Builder vehicle = VehicleDescriptor.newBuilder();
-      vehicle.setId(first.getVehicle());
+      vehicle.setId(id.getVehicleId());
       tripUpdate.setVehicle(vehicle);
 
       for (FlatPrediction prediction : predictions) {
@@ -224,32 +250,44 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
         stopTimeUpdate.setDeparture(stopTimeEvent);
         tripUpdate.addStopTimeUpdate(stopTimeUpdate);
       }
-      TripUpdateWithTimestamp withTimestamp = new TripUpdateWithTimestamp(
-          tripUpdate.build());
-      _tripUpdatesByTripId.put(tripId, withTimestamp);
+      FeedEntity.Builder feedEntity = FeedEntity.newBuilder();
+      feedEntity.setId(id.getFeedEntityId());
+      feedEntity.setTripUpdate(tripUpdate);
+      update.addUpdatedEntity(feedEntity.build());
     }
+    _tripUpdatesSink.handleIncrementalUpdate(update);
   }
 
-  private void writeGtfsRealtimeOutput() {
-    Iterator<TripUpdateWithTimestamp> iterator = _tripUpdatesByTripId.values().iterator();
-
-    FeedMessage.Builder feedMessageBuilder = GtfsRealtimeLibrary.createFeedMessageBuilder();
-    long now = feedMessageBuilder.getHeader().getTimestamp();
-
-    while (iterator.hasNext()) {
-      TripUpdateWithTimestamp update = iterator.next();
-      if (update.getTimestamp() + 5 * 60 * 1000 < now) {
-        iterator.remove();
-      } else {
-        TripUpdate tripUpdate = update.getTripUpdate();
-        FeedEntity.Builder entity = FeedEntity.newBuilder();
-        entity.setId(tripUpdate.getTrip().getTripId());
-        entity.setTripUpdate(tripUpdate);
-        feedMessageBuilder.addEntity(entity);
-      }
+  private void generateVehiclePositions(String routeTag) throws IOException,
+      SAXException {
+    long prevRequestTimeOrZero = 0;
+    Long prevRequestTime = _prevVehiclePositionRequestTimeByRouteTag.get(routeTag);
+    if (prevRequestTime != null) {
+      prevRequestTimeOrZero = prevRequestTime;
     }
+    long currentRequestTime = System.currentTimeMillis();
+    List<NBVehicle> vehicles = _nextBusApiService.downloadVehicleLocations(
+        routeTag, prevRequestTimeOrZero);
+    _prevVehiclePositionRequestTimeByRouteTag.put(routeTag, currentRequestTime);
 
-    _tripUpdatesMessage = feedMessageBuilder.build();
+    GtfsRealtimeIncrementalUpdate update = new GtfsRealtimeIncrementalUpdate();
+    for (NBVehicle vehicle : vehicles) {
+      VehiclePosition.Builder vehiclePosition = VehiclePosition.newBuilder();
+
+      Position.Builder position = vehiclePosition.getPositionBuilder();
+      position.setLatitude((float) vehicle.getLat());
+      position.setLongitude((float) vehicle.getLon());
+      position.setBearing(vehicle.getHeading());
+
+      VehicleDescriptor.Builder vehicleDesc = vehiclePosition.getVehicleBuilder();
+      vehicleDesc.setId(vehicle.getId());
+
+      FeedEntity.Builder feedEntity = FeedEntity.newBuilder();
+      feedEntity.setVehicle(vehiclePosition);
+      feedEntity.setId(vehicle.getId());
+      update.addUpdatedEntity(feedEntity.build());
+    }
+    _vehiclePositionsSink.handleIncrementalUpdate(update);
   }
 
   private class ProcessingTask implements Runnable {
@@ -265,10 +303,9 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
             return;
           }
           try {
-            processRouteStopCoverage(routeStopCoverage);
-            writeGtfsRealtimeOutput();
+            processRoute(routeStopCoverage);
           } catch (Exception ex) {
-
+            _log.warn("error processing routeStopCoverage: ", ex);
           }
         }
         long t1 = System.currentTimeMillis();
@@ -288,23 +325,6 @@ public class NextBusToGtfsRealtimeService implements GtfsRealtimeProvider {
         }
       }
 
-    }
-  }
-
-  private static class TripUpdateWithTimestamp {
-    private final long timestamp = System.currentTimeMillis();
-    private final TripUpdate tripUpdate;
-
-    public TripUpdateWithTimestamp(TripUpdate tripUpdate) {
-      this.tripUpdate = tripUpdate;
-    }
-
-    public long getTimestamp() {
-      return timestamp;
-    }
-
-    public TripUpdate getTripUpdate() {
-      return tripUpdate;
     }
   }
 

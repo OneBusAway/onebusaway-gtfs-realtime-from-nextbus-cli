@@ -43,6 +43,7 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStopTime;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBTrip;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBVehicle;
 import org.xml.sax.SAXException;
 
 @Singleton
@@ -103,6 +104,17 @@ public class NextBusApiService {
     return (List<NBPredictions>) digestUrl(url, false);
   }
 
+  @SuppressWarnings("unchecked")
+  public List<NBVehicle> downloadVehicleLocations(String routeTag, long prevRequestTime)
+      throws IOException, SAXException {
+    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=vehicleLocations&a="
+        + _agencyId + "&r=" + routeTag;
+    if (prevRequestTime != 0) {
+      url += "&t=" + prevRequestTime;
+    }
+    return (List<NBVehicle>) digestUrl(url, false);
+  }
+
   private Object digestUrl(String url, boolean cache) throws IOException,
       SAXException {
     File cacheFile = getCacheFileForUrl(url);
@@ -114,6 +126,11 @@ public class NextBusApiService {
         ois.close();
         return object;
       } catch (ClassNotFoundException ex) {
+        try {
+          ois.close();
+        } catch (IOException ex2) {
+
+        }
         throw new IllegalStateException(ex);
       }
     }
@@ -185,6 +202,10 @@ public class NextBusApiService {
     digester.addSetProperties("body/predictions/direction/prediction");
     digester.addSetNext("body/predictions/direction/prediction",
         "addPrediction");
+    
+    digester.addObjectCreate("body/vehicle", NBVehicle.class);
+    digester.addSetProperties("body/vehicle");
+    digester.addSetNext("body/vehicle", "add");
 
     return digester;
   }
