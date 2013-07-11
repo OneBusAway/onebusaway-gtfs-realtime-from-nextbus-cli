@@ -28,9 +28,21 @@ java -jar onebusaway-gtfs-realtime-from-nextbus-cli.jar [-args] --agencyId=nextb
 
   * <<<--agencyId=id>>> - NextBus agency id for the agency to query
 
-  * <<<--tripUpdatesPath=path>>> - path to write GTFS-realtime output
+  * <<<--tripUpdatesPath=path>>> - path to write GTFS-realtime trip updates data
 
-  * <<<--tripUpdatesUrl=url>>> - url to share GTFS-realtime output  
+  * <<<--tripUpdatesUrl=url>>> - url to share GTFS-realtime trip updates data
+  
+  * <<<--vehiclePositionsPath=path>>> - path to write GTFS-realtime vehicle positions data
+
+  * <<<--vehiclePositionsUrl=url>>> - url to share GTFS-realtime vehicle positions data
+  
+  * <<<--cacheDir=path>>> - When specified, some expensive / infrequently-changing requests from the NextBus API
+    will be cached to disk
+                               
+  * <<<--gtfsPath=path>>> - Path to a GTFS feed that will be used for matching and convert NextBus stop and route
+    tags to corresponding GTFS ids
+  
+  * <<<--gtfsTripMatching>>> - If specified, we will also attempt to match GTFS trip ids as well.            
 
   * <<<--daemonize>>> - Indicates that the process should be daemonized
 
