@@ -123,6 +123,16 @@
                   <mainClass>org.onebusaway.gtfs_realtime.nextbus.NextBusToGtfsRealtimeMain</mainClass>
                 </transformer>
               </transformers>
+			  <filters>
+	            <filter>
+                  <artifact>org.eclipse.jetty.orbit:javax.servlet</artifact>
+	              <excludes>
+	                <exclude>META-INF/ECLIPSEF.RSA</exclude>
+                    <exclude>META-INF/ECLIPSEF.SF</exclude>
+                    <exclude>META-INF/eclipse.inf</exclude>
+	              </excludes>
+                </filter>
+              </filters>
             </configuration>
           </execution>
         </executions>
@@ -249,6 +259,11 @@
                   <descriptors>
                     <descriptor>assembly.xml</descriptor>
                   </descriptors>
+				  <exclude>META-INF/*.SF</exclude>
+                  <exclude>META-INF/*.DSA</exclude>
+                  <exclude>META-INF/*.RSA</exclude>
+                  <exclude>junit:junit</exclude>
+                  <exclude>org.apache.maven:lib:tests</exclude>
                 </configuration>
               </execution>
             </executions>
