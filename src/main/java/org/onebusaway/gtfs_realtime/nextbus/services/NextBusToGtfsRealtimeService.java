@@ -36,18 +36,27 @@ import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeIncrementalUpdate;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeSink;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.TripUpdates;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.VehiclePositions;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.Alerts;
 import org.onebusaway.gtfs_realtime.nextbus.model.FlatPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBMessage;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBVehicle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
+import com.google.transit.realtime.GtfsRealtime.Alert;
+import com.google.transit.realtime.GtfsRealtime.EntitySelector;
 import com.google.transit.realtime.GtfsRealtime.FeedEntity;
 import com.google.transit.realtime.GtfsRealtime.Position;
+import com.google.transit.realtime.GtfsRealtime.TimeRange;
+import com.google.transit.realtime.GtfsRealtime.TranslatedString;
+import com.google.transit.realtime.GtfsRealtime.TranslatedString.Translation;
 import com.google.transit.realtime.GtfsRealtime.TripDescriptor;
 import com.google.transit.realtime.GtfsRealtime.TripUpdate;
 import com.google.transit.realtime.GtfsRealtime.TripUpdate.StopTimeEvent;
@@ -63,6 +72,8 @@ public class NextBusToGtfsRealtimeService {
   private static final PredictionComparator _predictionComparator = new PredictionComparator();
 
   private RouteStopCoverageService _routeStopCoverageService;
+  
+  private NextBusToGtfsService _matchingService;
 
   private NextBusApiService _nextBusApiService;
 
@@ -71,12 +82,16 @@ public class NextBusToGtfsRealtimeService {
   private GtfsRealtimeSink _tripUpdatesSink;
 
   private GtfsRealtimeSink _vehiclePositionsSink;
+  
+  private GtfsRealtimeSink _alertsSink;
 
   private ExecutorService _executor;
 
   private Future<?> _task;
 
   private Map<String, Long> _prevVehiclePositionRequestTimeByRouteTag = new HashMap<String, Long>();
+  
+  private Long _prevAlertRequest = 0L;
 
   /**
    * The minimum amount of time, in seconds, between repeated requests for the
@@ -87,11 +102,18 @@ public class NextBusToGtfsRealtimeService {
   private boolean _tripUpdatesEnabled = false;
 
   private boolean _vehiclePositionsEnabled = false;
+  
+  private boolean _alertsEnabled = false;
 
   @Inject
   public void setRouteStopCoverageService(
       RouteStopCoverageService routeStopCoverageService) {
     _routeStopCoverageService = routeStopCoverageService;
+  }
+  
+  @Inject
+  public void setMatchingService(NextBusToGtfsService matchingService) {
+    _matchingService = matchingService;
   }
 
   @Inject
@@ -115,6 +137,12 @@ public class NextBusToGtfsRealtimeService {
   GtfsRealtimeSink vehiclePositionsSink) {
     _vehiclePositionsSink = vehiclePositionsSink;
   }
+  
+  @Inject
+  public void setAlertsSink(@Alerts
+  GtfsRealtimeSink alertsSink) {
+    _alertsSink = alertsSink;
+  }
 
   /**
    * Sets the minimum amount of time, in seconds, between repeated requests for
@@ -132,6 +160,10 @@ public class NextBusToGtfsRealtimeService {
 
   public void setEnableVehiclePositions(boolean enableVehiclePositions) {
     _vehiclePositionsEnabled = enableVehiclePositions;
+  }
+  
+  public void setEnableAlerts(boolean enableAlerts) {
+    _alertsEnabled = enableAlerts;
   }
 
   /****
@@ -289,6 +321,77 @@ public class NextBusToGtfsRealtimeService {
     }
     _vehiclePositionsSink.handleIncrementalUpdate(update);
   }
+  
+  private void processMessages()
+      throws IOException, SAXException {
+	if (_alertsEnabled) {
+	  generateAlerts();
+	}
+  }
+
+  private void generateAlerts() throws IOException, SAXException {
+    List<NBRoute> allRoutes = _nextBusApiService.downloadMessages(_prevAlertRequest);
+    _prevAlertRequest = System.currentTimeMillis();
+
+    GtfsRealtimeIncrementalUpdate update = new GtfsRealtimeIncrementalUpdate();
+    ArrayList<String> alertIds = new ArrayList<String>();
+    for (NBRoute route: allRoutes) {
+      for (NBMessage message: route.getMessages()) {
+        if(!alertIds.contains(message.getId())) {
+          Alert.Builder alert = Alert.newBuilder();
+          
+          TranslatedString.Builder translatedString = TranslatedString.newBuilder();
+          Translation.Builder translation = Translation.newBuilder();
+          translation.setLanguage("en");
+          translation.setText(message.getText());
+          translatedString.addTranslation(translation);
+          alert.setHeaderText(translatedString);
+          
+          // add timerange if NextBus message has boundary(ies)
+          if(message.getStartBoundary() > 0 || message.getEndBoundary() > 0) {
+        	TimeRange.Builder timeRange = TimeRange.newBuilder();
+        	if(message.getStartBoundary() > 0) {
+        	  timeRange.setStart(message.getStartBoundary() / 1000);
+        	}
+        	if(message.getEndBoundary() > 0) {
+        	  timeRange.setEnd(message.getEndBoundary() / 1000);
+        	}
+        	alert.addActivePeriod(timeRange);
+          }
+          
+          // add informed entity(ies) if NextBus message has affected routes (and stops)
+          if(message.getRoutes().size() > 0) {
+        	List<NBRoute> messageRoutes = message.getRoutes();
+            _matchingService.matchToGtfs(messageRoutes);
+        	
+        	for(NBRoute messageRoute: messageRoutes){
+        	  EntitySelector.Builder routeEntity = EntitySelector.newBuilder();
+        	  routeEntity.setRouteId(messageRoute.getTag());
+        	  alert.addInformedEntity(routeEntity);
+        	  for(NBStop routeStop: messageRoute.getStops()) {
+        		EntitySelector.Builder routeStopEntity = EntitySelector.newBuilder();
+        		routeStopEntity.setRouteId(messageRoute.getTag());
+        		if(routeStop.getStopId() != null) {
+        		  routeStopEntity.setStopId(routeStop.getStopId());
+        		} else {
+        		  routeStopEntity.setStopId(routeStop.getTag());
+        		}
+            	alert.addInformedEntity(routeStopEntity);
+        	  }
+        	}
+          }
+          
+          FeedEntity.Builder feedEntity = FeedEntity.newBuilder();
+          feedEntity.setAlert(alert);
+          feedEntity.setId(message.getId());
+          update.addUpdatedEntity(feedEntity.build());
+          
+          alertIds.add(message.getId());
+        }
+      }
+    }
+    _alertsSink.handleIncrementalUpdate(update);
+  }
 
   private class ProcessingTask implements Runnable {
 
@@ -296,17 +399,28 @@ public class NextBusToGtfsRealtimeService {
     public void run() {
 
       while (true) {
-        List<RouteStopCoverage> coverage = _routeStopCoverageService.getRouteStopCoverage();
-        long t0 = System.currentTimeMillis();
-        for (RouteStopCoverage routeStopCoverage : coverage) {
-          if (Thread.interrupted()) {
-            return;
-          }
-          try {
-            processRoute(routeStopCoverage);
-          } catch (Exception ex) {
-            _log.warn("error processing routeStopCoverage: ", ex);
-          }
+    	long t0 = System.currentTimeMillis();
+    	
+    	if(_tripUpdatesEnabled || _vehiclePositionsEnabled) {
+    	  
+    	  List<RouteStopCoverage> coverage = _routeStopCoverageService.getRouteStopCoverage();
+        
+	      for (RouteStopCoverage routeStopCoverage : coverage) {
+	        if (Thread.interrupted()) {
+	          return;
+	        }
+	        try {
+	          processRoute(routeStopCoverage);
+	        } catch (Exception ex) {
+	          _log.warn("error processing routeStopCoverage: ", ex);
+	        }
+	      }
+        }
+        
+        try {
+          processMessages();
+        } catch (Exception ex) {
+          _log.warn("error processing messages: ", ex);
         }
         long t1 = System.currentTimeMillis();
 
@@ -337,4 +451,5 @@ public class NextBusToGtfsRealtimeService {
       return t1 == t2 ? 0 : (t1 < t2 ? -1 : 1);
     }
   }
+
 }
