@@ -136,6 +136,7 @@ public class NextBusApiService {
     }
     InputStream in = _downloader.openUrl(url);
     Object result = _digester.parse(in);
+    in.close();
     if (cache && cacheFile != null) {
       ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(
           new FileOutputStream(cacheFile)));
