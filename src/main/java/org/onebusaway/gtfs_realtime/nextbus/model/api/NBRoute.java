@@ -50,6 +50,8 @@ public class NBRoute implements Serializable {
   private List<NBDirection> directions = new ArrayList<NBDirection>();
 
   private List<NBTrip> trips = new ArrayList<NBTrip>();
+  
+  private List<NBMessage> messages = new ArrayList<NBMessage>();
 
   public String getTag() {
     return tag;
@@ -114,7 +116,7 @@ public class NBRoute implements Serializable {
   public void setLongMax(double longMax) {
     this.longMax = longMax;
   }
-
+  
   public String getScheduleClass() {
     return scheduleClass;
   }
@@ -162,9 +164,18 @@ public class NBRoute implements Serializable {
   public List<NBTrip> getTrips() {
     return trips;
   }
+  
+  public List<NBMessage> getMessages() {
+	return messages;
+  }
+
+  public void addMessage(NBMessage message) {
+	messages.add(message);
+  }
 
   @Override
   public String toString() {
     return tag;
   }
+
 }

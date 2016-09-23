@@ -33,6 +33,7 @@ import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeServlet;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeSource;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.TripUpdates;
 import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.VehiclePositions;
+import org.onebusaway.gtfs_realtime.exporter.GtfsRealtimeGuiceBindingTypes.Alerts;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusApiService;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsRealtimeService;
 import org.onebusaway.gtfs_realtime.nextbus.services.NextBusToGtfsService;
@@ -53,6 +54,10 @@ public class NextBusToGtfsRealtimeMain {
   private static final String ARG_VEHICLE_POSITIONS_PATH = "vehiclePositionsPath";
 
   private static final String ARG_VEHICLE_POSITIONS_URL = "vehiclePositionsUrl";
+  
+  private static final String ARG_ALERTS_PATH = "alertsPath";
+
+  private static final String ARG_ALERTS_URL = "alertsUrl";
 
   private static final String ARG_CACHE_DIR = "cacheDir";
 
@@ -72,6 +77,8 @@ public class NextBusToGtfsRealtimeMain {
   private GtfsRealtimeSource _tripUpdatesSource;
 
   private GtfsRealtimeSource _vehiclePositionsSource;
+  
+  private GtfsRealtimeSource _alertsSource;
 
   private NextBusToGtfsRealtimeService _nextBusToGtfsRealtimeService;
 
@@ -97,6 +104,12 @@ public class NextBusToGtfsRealtimeMain {
   public void setVehiclePositionsSource(@VehiclePositions
   GtfsRealtimeSource vehiclePositionsSource) {
     _vehiclePositionsSource = vehiclePositionsSource;
+  }
+  
+  @Inject
+  public void setServiceAlertsSource(@Alerts
+  GtfsRealtimeSource AlertsSource) {
+    _alertsSource = AlertsSource;
   }
 
   @Inject
@@ -157,6 +170,20 @@ public class NextBusToGtfsRealtimeMain {
           cli.getOptionValue(ARG_VEHICLE_POSITIONS_PATH)));
       _nextBusToGtfsRealtimeService.setEnableVehiclePositions(true);
     }
+    
+    if (cli.hasOption(ARG_ALERTS_URL)) {
+      GtfsRealtimeServlet servlet = injector.getInstance(GtfsRealtimeServlet.class);
+      servlet.setSource(_alertsSource);
+      servlet.setUrl(new URL(cli.getOptionValue(ARG_ALERTS_URL)));
+      _nextBusToGtfsRealtimeService.setEnableAlerts(true);
+    }
+    if (cli.hasOption(ARG_ALERTS_PATH)) {
+      GtfsRealtimeFileWriter fileWriter = injector.getInstance(GtfsRealtimeFileWriter.class);
+      fileWriter.setSource(_alertsSource);
+      fileWriter.setPath(new File(
+            cli.getOptionValue(ARG_ALERTS_PATH)));
+      _nextBusToGtfsRealtimeService.setEnableAlerts(true);
+    }
 
     if (cli.hasOption(ARG_CACHE_DIR)) {
       File cacheDir = new File(cli.getOptionValue(ARG_CACHE_DIR));
@@ -183,8 +210,10 @@ public class NextBusToGtfsRealtimeMain {
     options.addOption(ARG_TRIP_UPDATES_PATH, true, "trip updates path");
     options.addOption(ARG_TRIP_UPDATES_URL, true, "trip updates url");
     options.addOption(ARG_VEHICLE_POSITIONS_PATH, true,
-        "vehicle positions path");
+            "vehicle positions path");
     options.addOption(ARG_VEHICLE_POSITIONS_URL, true, "vehicle positions url");
+    options.addOption(ARG_ALERTS_PATH, true, "alerts path");
+    options.addOption(ARG_ALERTS_URL, true, "alerts url");
     options.addOption(ARG_CACHE_DIR, true, "route configuration cache path");
     options.addOption(ARG_GTFS_PATH, true, "gtfs path");
     options.addOption(ARG_GTFS_TRIP_MATCHING, false,

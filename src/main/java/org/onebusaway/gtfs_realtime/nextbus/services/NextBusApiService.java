@@ -37,6 +37,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.digester.Digester;
 import org.onebusaway.gtfs_realtime.nextbus.model.RouteStopCoverage;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBDirection;
+import org.onebusaway.gtfs_realtime.nextbus.model.api.NBMessage;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPrediction;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
@@ -115,6 +116,16 @@ public class NextBusApiService {
     return (List<NBVehicle>) digestUrl(url, false);
   }
 
+  @SuppressWarnings("unchecked")
+  public List<NBRoute> downloadMessages(long prevRequestTime) throws IOException, SAXException {
+	String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=messages&a="
+	    + _agencyId;
+    if (prevRequestTime != 0) {
+      url += "&t=" + prevRequestTime;
+    }
+    return (List<NBRoute>) digestUrl(url, false);
+  }
+
   private Object digestUrl(String url, boolean cache) throws IOException,
       SAXException {
     File cacheFile = getCacheFileForUrl(url);
@@ -181,7 +192,21 @@ public class NextBusApiService {
     digester.addObjectCreate("body/route/direction/stop", NBStop.class);
     digester.addSetProperties("body/route/direction/stop");
     digester.addSetNext("body/route/direction/stop", "addStop");
+    
+    digester.addObjectCreate("body/route/message", NBMessage.class);
+    digester.addSetProperties("body/route/message");
+    digester.addSetNext("body/route/message", "addMessage");
+    
+    digester.addObjectCreate("body/route/message/routeConfiguredForMessage", NBRoute.class);
+    digester.addSetProperties("body/route/message/routeConfiguredForMessage");
+    digester.addSetNext("body/route/message/routeConfiguredForMessage", "addRoute");
+    
+    digester.addObjectCreate("body/route/message/routeConfiguredForMessage/stop", NBStop.class);
+    digester.addSetProperties("body/route/message/routeConfiguredForMessage/stop");
+    digester.addSetNext("body/route/message/routeConfiguredForMessage/stop", "addStop");
 
+    digester.addCallMethod("body/route/message/text", "setText", 0);
+    
     digester.addObjectCreate("body/route/tr", NBTrip.class);
     digester.addSetProperties("body/route/tr");
     digester.addSetNext("body/route/tr", "addTrip");
