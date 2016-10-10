@@ -44,7 +44,6 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBPredictions;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBVehicle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.SAXException;
 
 import com.google.transit.realtime.GtfsRealtime.FeedEntity;
 import com.google.transit.realtime.GtfsRealtime.Position;
@@ -157,7 +156,7 @@ public class NextBusToGtfsRealtimeService {
   }
 
   private void processRoute(RouteStopCoverage routeStopCoverage)
-      throws IOException, SAXException {
+      throws IOException {
 
     String routeTag = routeStopCoverage.getRouteTag();
     _log.info("route=" + routeTag);
@@ -172,7 +171,7 @@ public class NextBusToGtfsRealtimeService {
   }
 
   private void generateTripUpdates(RouteStopCoverage routeStopCoverage)
-      throws IOException, SAXException {
+      throws IOException {
     List<NBPredictions> allPredictions = _nextBusApiService.downloadPredictions(routeStopCoverage);
     List<FlatPrediction> flatPredictions = flattenPredictions(allPredictions);
     Map<TripUpdateId, List<FlatPrediction>> predictionsById = groupPredictionsById(flatPredictions);
@@ -258,8 +257,7 @@ public class NextBusToGtfsRealtimeService {
     _tripUpdatesSink.handleIncrementalUpdate(update);
   }
 
-  private void generateVehiclePositions(String routeTag) throws IOException,
-      SAXException {
+  private void generateVehiclePositions(String routeTag) throws IOException {
     long prevRequestTimeOrZero = 0;
     Long prevRequestTime = _prevVehiclePositionRequestTimeByRouteTag.get(routeTag);
     if (prevRequestTime != null) {

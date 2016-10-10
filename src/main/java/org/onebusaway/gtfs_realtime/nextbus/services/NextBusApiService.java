@@ -44,10 +44,14 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStopTime;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBTrip;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBVehicle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
 @Singleton
 public class NextBusApiService {
+
+  private static final Logger _log = LoggerFactory.getLogger(NextBusApiService.class);
 
   private DownloaderService _downloader;
 
@@ -71,7 +75,7 @@ public class NextBusApiService {
   }
 
   @SuppressWarnings("unchecked")
-  public List<NBRoute> downloadRouteList() throws IOException, SAXException {
+  public List<NBRoute> downloadRouteList() throws IOException {
     String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeList&a="
         + _agencyId;
     return (List<NBRoute>) digestUrl(url, true);
@@ -79,7 +83,7 @@ public class NextBusApiService {
 
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteConfigList(String routeTag)
-      throws IOException, SAXException {
+      throws IOException {
     String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a="
         + _agencyId + "&r=" + routeTag;
     return (List<NBRoute>) digestUrl(url, true);
@@ -87,7 +91,7 @@ public class NextBusApiService {
 
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteScheduleList(String routeTag)
-      throws IOException, SAXException {
+      throws IOException {
     String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=schedule&a="
         + _agencyId + "&r=" + routeTag;
     return (List<NBRoute>) digestUrl(url, true);
@@ -95,7 +99,7 @@ public class NextBusApiService {
 
   @SuppressWarnings("unchecked")
   public List<NBPredictions> downloadPredictions(RouteStopCoverage coverage)
-      throws IOException, SAXException {
+      throws IOException {
     String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictionsForMultiStops&a="
         + _agencyId;
     for (String stopTag : coverage.getStopTags()) {
@@ -106,7 +110,7 @@ public class NextBusApiService {
 
   @SuppressWarnings("unchecked")
   public List<NBVehicle> downloadVehicleLocations(String routeTag, long prevRequestTime)
-      throws IOException, SAXException {
+      throws IOException {
     String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=vehicleLocations&a="
         + _agencyId + "&r=" + routeTag;
     if (prevRequestTime != 0) {
@@ -115,8 +119,7 @@ public class NextBusApiService {
     return (List<NBVehicle>) digestUrl(url, false);
   }
 
-  private Object digestUrl(String url, boolean cache) throws IOException,
-      SAXException {
+  private Object digestUrl(String url, boolean cache) throws IOException {
     File cacheFile = getCacheFileForUrl(url);
     if (cache && cacheFile != null && cacheFile.exists()) {
       ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
@@ -135,7 +138,7 @@ public class NextBusApiService {
       }
     }
     InputStream in = _downloader.openUrl(url);
-    Object result = _digester.parse(in);
+    Object result = safeDigest(in);
     if (cache && cacheFile != null) {
       ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(
           new FileOutputStream(cacheFile)));
@@ -143,6 +146,18 @@ public class NextBusApiService {
       oos.close();
     }
     return result;
+  }
+
+  private Object safeDigest(InputStream in) throws IOException {
+    try {
+      return _digester.parse(in);
+    } catch (Exception ex) {
+      _log.error("Error digesting: " + ex.toString());
+      return null;
+    }
+    finally {
+      in.close();
+    }
   }
 
   private File getCacheFileForUrl(String url)

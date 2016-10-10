@@ -52,7 +52,7 @@
     <dependency>
       <groupId>org.onebusaway</groupId>
       <artifactId>onebusaway-gtfs-realtime-exporter</artifactId>
-      <version>1.2.0-SNAPSHOT</version>
+      <version>1.2.0</version>
     </dependency>
     <dependency>
       <groupId>org.onebusaway</groupId>
@@ -95,7 +95,7 @@
     <dependency>
       <groupId>org.onebusaway</groupId>
       <artifactId>onebusaway-geospatial</artifactId>
-      <version>0.2.0-SNAPSHOT</version>
+      <version>1.1.15</version>
     </dependency>
   </dependencies>
 
@@ -123,15 +123,16 @@
                   <mainClass>org.onebusaway.gtfs_realtime.nextbus.NextBusToGtfsRealtimeMain</mainClass>
                 </transformer>
               </transformers>
-	      <filters>
-		<filter>
-		  <artifact>org.eclipse.jetty:jetty-http</artifact>
-		  <excludes>
-		    <exclude>META-INF/*.SF</exclude>
-		    <exclude>META-INF/*.RSA</exclude>
-		  </excludes>
-		</filter>
-	      </filters>
+			  <filters>
+	            <filter>
+                  <artifact>org.eclipse.jetty.orbit:javax.servlet</artifact>
+	              <excludes>
+	                <exclude>META-INF/ECLIPSEF.RSA</exclude>
+                    <exclude>META-INF/ECLIPSEF.SF</exclude>
+                    <exclude>META-INF/eclipse.inf</exclude>
+	              </excludes>
+                </filter>
+              </filters>
             </configuration>
           </execution>
         </executions>
@@ -258,6 +259,11 @@
                   <descriptors>
                     <descriptor>assembly.xml</descriptor>
                   </descriptors>
+				  <exclude>META-INF/*.SF</exclude>
+                  <exclude>META-INF/*.DSA</exclude>
+                  <exclude>META-INF/*.RSA</exclude>
+                  <exclude>junit:junit</exclude>
+                  <exclude>org.apache.maven:lib:tests</exclude>
                 </configuration>
               </execution>
             </executions>
