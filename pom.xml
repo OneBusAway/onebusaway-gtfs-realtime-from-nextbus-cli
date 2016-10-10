@@ -123,6 +123,15 @@
                   <mainClass>org.onebusaway.gtfs_realtime.nextbus.NextBusToGtfsRealtimeMain</mainClass>
                 </transformer>
               </transformers>
+	      <filters>
+		<filter>
+		  <artifact>org.eclipse.jetty:jetty-http</artifact>
+		  <excludes>
+		    <exclude>META-INF/*.SF</exclude>
+		    <exclude>META-INF/*.RSA</exclude>
+		  </excludes>
+		</filter>
+	      </filters>
             </configuration>
           </execution>
         </executions>
