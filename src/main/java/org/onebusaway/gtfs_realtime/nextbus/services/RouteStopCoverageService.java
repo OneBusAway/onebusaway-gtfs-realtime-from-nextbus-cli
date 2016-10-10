@@ -38,7 +38,6 @@ import org.onebusaway.gtfs_realtime.nextbus.model.api.NBRoute;
 import org.onebusaway.gtfs_realtime.nextbus.model.api.NBStop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.SAXException;
 
 /**
  * This class periodically queries the configuration information for all know
@@ -132,7 +131,7 @@ public class RouteStopCoverageService {
   }
 
   private synchronized void refreshRouteStopCoverage(boolean useCacheIfAvailable)
-      throws IOException, SAXException, ClassNotFoundException {
+      throws IOException, ClassNotFoundException {
     _log.info("Rebuilding route-stop coverage model");
     List<NBRoute> routeConfigurations = readRouteConfigurations(useCacheIfAvailable);
     _routeStopCoverage = getRouteStopCoverageForRouteConfigurations(routeConfigurations);
@@ -141,13 +140,12 @@ public class RouteStopCoverageService {
   }
 
   private List<NBRoute> readRouteConfigurations(boolean useCacheIfAvailable)
-      throws IOException, SAXException, ClassNotFoundException {
+      throws IOException, ClassNotFoundException {
     List<NBRoute> routeConfigurations = downloadRouteConfigurations();
     return routeConfigurations;
   }
 
-  private List<NBRoute> downloadRouteConfigurations() throws IOException,
-      SAXException {
+  private List<NBRoute> downloadRouteConfigurations() throws IOException {
     List<NBRoute> routes = _nextBusApiService.downloadRouteList();
     List<NBRoute> routeConfigurations = new ArrayList<NBRoute>();
     int routeIndex = 0;
