@@ -6,6 +6,10 @@ For more information on running the tool, check out the latest project documenta
 * [Stable Documentation](http://developer.onebusaway.org/modules/onebusaway-gtfs-realtime-from-nextbus-cli/current/)
 * [Latest SNAPSHOT Documentation](http://developer.onebusaway.org/modules/onebusaway-gtfs-realtime-from-nextbus-cli/current-SNAPSHOT/)
 
+## Official NextBus API
+
+Note that NextBus now directly offers a GTFS-realtime API for their products, which appears to be free for existing customers!  See [Cubic site](http://nextbus.cubic.com/Products/Real-Time-Rider-Information) and [this FAQ](https://medium.com/omnimodal/want-more-riders-open-up-your-nextbus-api-with-gtfs-realtime-7387c80f31e1#.pkuzizhl5) for more information on how to request this API be activated for your system.
+
 ## Other GTFS-realtime Resources
 
 Be sure to check out [all our GTFS-realtime resources](https://github.com/OneBusAway/onebusaway/wiki/GTFS-Realtime-Resources).
