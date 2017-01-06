@@ -8,7 +8,7 @@ For more information on running the tool, check out the latest project documenta
 
 ## Official NextBus GTFS-realtime API
 
-Note that NextBus now directly offers a GTFS-realtime API for their products, which appears to be free for existing customers!  See [Cubic site](http://nextbus.cubic.com/Products/Real-Time-Rider-Information) and [this FAQ](https://medium.com/omnimodal/want-more-riders-open-up-your-nextbus-api-with-gtfs-realtime-7387c80f31e1#.pkuzizhl5) for more information on how to request this API be activated for your system.
+Note that NextBus now directly offers a GTFS-realtime API for their products. There may be additional fees associated with enabling this feature. See [Cubic site](http://nextbus.cubic.com/Products/Real-Time-Rider-Information) and [this FAQ](https://medium.com/omnimodal/want-more-riders-open-up-your-nextbus-api-with-gtfs-realtime-7387c80f31e1#.pkuzizhl5) for more information on how to request this API be activated for your system.
 
 ## Other GTFS-realtime Resources
 
