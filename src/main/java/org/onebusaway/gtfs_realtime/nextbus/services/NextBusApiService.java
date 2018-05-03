@@ -76,7 +76,7 @@ public class NextBusApiService {
 
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteList() throws IOException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeList&a="
+    String url = getBaseUrl() + "/service/publicXMLFeed?command=routeList&a="
         + _agencyId;
     return (List<NBRoute>) digestUrl(url, true);
   }
@@ -84,7 +84,7 @@ public class NextBusApiService {
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteConfigList(String routeTag)
       throws IOException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=routeConfig&a="
+    String url = getBaseUrl() + "/service/publicXMLFeed?command=routeConfig&a="
         + _agencyId + "&r=" + routeTag;
     return (List<NBRoute>) digestUrl(url, true);
   }
@@ -92,7 +92,7 @@ public class NextBusApiService {
   @SuppressWarnings("unchecked")
   public List<NBRoute> downloadRouteScheduleList(String routeTag)
       throws IOException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=schedule&a="
+    String url = getBaseUrl() + "/service/publicXMLFeed?command=schedule&a="
         + _agencyId + "&r=" + routeTag;
     return (List<NBRoute>) digestUrl(url, true);
   }
@@ -100,7 +100,7 @@ public class NextBusApiService {
   @SuppressWarnings("unchecked")
   public List<NBPredictions> downloadPredictions(RouteStopCoverage coverage)
       throws IOException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=predictionsForMultiStops&a="
+    String url = getBaseUrl() + "/service/publicXMLFeed?command=predictionsForMultiStops&a="
         + _agencyId;
     for (String stopTag : coverage.getStopTags()) {
       url += "&stops=" + coverage.getRouteTag() + "%7c" + stopTag;
@@ -111,12 +111,18 @@ public class NextBusApiService {
   @SuppressWarnings("unchecked")
   public List<NBVehicle> downloadVehicleLocations(String routeTag, long prevRequestTime)
       throws IOException {
-    String url = "http://webservices.nextbus.com/service/publicXMLFeed?command=vehicleLocations&a="
+    String url = getBaseUrl() + "/service/publicXMLFeed?command=vehicleLocations&a="
         + _agencyId + "&r=" + routeTag;
     if (prevRequestTime != 0) {
       url += "&t=" + prevRequestTime;
     }
     return (List<NBVehicle>) digestUrl(url, false);
+  }
+
+  public String getBaseUrl() {
+    if (System.getProperty("nextbus.url") != null)
+      return System.getProperty("nextbus.url");
+    return "http://webservices.nextbus.com";
   }
 
   private Object digestUrl(String url, boolean cache) throws IOException {
